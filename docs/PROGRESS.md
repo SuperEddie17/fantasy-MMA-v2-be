@@ -7,15 +7,15 @@
 
 ## Aktuální stav
 
-- **Aktuální fáze:** F0 – Základy a přenos simulace
-- **Stav fáze:** v review – PR `[F0] Základy a přenos simulace`; po zeleném CI a merge je F0 hotová
+- **Aktuální fáze:** F1 – Sportovní data a admin
+- **Stav fáze:** nezačato (F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-29
 
 ## Přehled fází
 
 | Fáze | Obsah | Stav | PR |
 | --- | --- | --- | --- |
-| F0 | Základy a přenos simulace | 🔵 v review | `[F0]` PR #2 |
+| F0 | Základy a přenos simulace | ✅ hotovo | #2 |
 | F1 | Sportovní data a admin | ⚪ nezačato | – |
 | F2 | Trh a ceny | ⚪ nezačato | – |
 | F3 | Hráči, portfolio, obchodování | ⚪ nezačato | – |
@@ -41,7 +41,7 @@ odpovídá Python simulaci.
 - [x] F0.7 Golden testy (`GoldenTest`): 11 funkcí × 500 případů, vše v toleranci 1 jednotky
 - [x] F0.8 Přehrání sezóny 2025 (`Season2025Test`): 11 strategií × 2 scénáře, čisté jmění i počet obchodů
   odpovídá `sim.py` na 3 desetinná místa (požadavek ±2 %)
-- [ ] Zelené CI na PR a merge → F0 hotová
+- [x] Zelené CI na PR a merge → F0 hotová (PR #2)
 
 Ověřeno lokálně: `./gradlew build` zelené, integrační testy `app` proti Postgresu 16
 (přes `TEST_DB_URL`, Docker v sandboxu nebyl), `GET /health` vrací `UP` včetně `jdbc`.
@@ -83,9 +83,8 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-1. Dotáhnout PR `[F0]` do zeleného CI a merge, pak F0 označit ✅ a „Aktuální fáze“ přepnout na F1.
-2. Start F1 (Sportovní data a admin): rozepsat úkoly F1.x sem podle `plan.md`, první PR
-   `[F1] Tabulky sportovních dat (Flyway)` – `organization`, `fighter`, `event`, `bout`, … a ingest jádro.
+Start F1 (Sportovní data a admin): rozepsat úkoly F1.x do sekce F1 podle `plan.md`, první PR
+`[F1] Tabulky sportovních dat (Flyway)` – `organization`, `fighter`, `event`, `bout`, … a ingest jádro.
 
 ## Otevřené otázky
 
