@@ -1,0 +1,26 @@
+micronaut:
+  application:
+    name: fight-exchange
+  server:
+    port: ${PORT:8080}
+
+datasources:
+  default:
+    url: ${DB_URL:`jdbc:postgresql://localhost:5432/fightexchange`}
+    username: ${DB_USER:fightexchange}
+    password: ${DB_PASSWORD:fightexchange}
+    driver-class-name: org.postgresql.Driver
+    db-type: postgres
+    dialect: POSTGRES
+
+flyway:
+  datasources:
+    default:
+      enabled: true
+      locations: classpath:db/migration
+
+endpoints:
+  health:
+    enabled: true
+    sensitive: false
+    details-visible: ANONYMOUS

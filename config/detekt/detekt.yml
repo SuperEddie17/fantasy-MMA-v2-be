@@ -1,0 +1,15 @@
+# Overrides on top of the default detekt config (buildUponDefaultConfig = true).
+complexity:
+  LongParameterList:
+    constructorThreshold: 40
+    functionThreshold: 8
+  TooManyFunctions:
+    active: false
+style:
+  MagicNumber:
+    active: false
+  ReturnCount:
+    max: 4
+performance:
+  SpreadOperator:
+    active: false
