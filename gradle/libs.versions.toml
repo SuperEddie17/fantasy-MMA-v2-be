@@ -1,0 +1,26 @@
+[versions]
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
+micronaut-platform = "4.10.22"
+micronaut-gradle = "4.6.2"
+detekt = "1.23.8"
+ktlint-plugin = "13.1.0"
+junit = "5.11.4"
+jackson = "2.18.2"
+testcontainers = "1.21.4"
+shadow = "8.3.6"
+
+[libraries]
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+jackson-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-allopen = { id = "org.jetbrains.kotlin.plugin.allopen", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+micronaut-application = { id = "io.micronaut.application", version.ref = "micronaut-gradle" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint-plugin" }
