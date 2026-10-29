@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** nezačato (F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-29
 
 ## Přehled fází
@@ -16,7 +16,7 @@
 | Fáze | Obsah | Stav | PR |
 | --- | --- | --- | --- |
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
-| F1 | Sportovní data a admin | ⚪ nezačato | – |
+| F1 | Sportovní data a admin | 🟡 rozpracováno | – |
 | F2 | Trh a ceny | ⚪ nezačato | – |
 | F3 | Hráči, portfolio, obchodování | ⚪ nezačato | – |
 | F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
@@ -48,7 +48,19 @@ Ověřeno lokálně: `./gradlew build` zelené, integrační testy `app` proti P
 
 ## F1 – Sportovní data a admin
 
-Úkoly viz [`plan.md`](plan.md#fáze-1--sportovní-data-a-admin-23-týdny). Rozepíše se při startu fáze.
+Detail viz [`plan.md`](plan.md#fáze-1--sportovní-data-a-admin-23-týdny).
+Hotovo, když: admin zadá kompletní event Oktagonu (karta, výsledky, bonusy) za ≤ 15 minut přes API,
+Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
+
+- [x] F1.1 Flyway `V003__sport_data.sql`: všechny sportovní tabulky + seed 5 organizací, `SportSchemaTest`
+- [ ] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor`
+- [ ] F1.3 `FighterMatcher` (external id → normalizované jméno + divize → `review_item`)
+- [ ] F1.4 Zpracování typů událostí (`fighter.upsert` … `ranking.snapshot`), konfigurace potvrzování adminem
+- [ ] F1.5 Elo po `bout.result`, oprava výsledku = nová verze + přepočet od zápasu dál
+- [ ] F1.6 Veřejné čtecí endpointy (organizace, zápasníci, eventy)
+- [ ] F1.7 Admin API + statický admin účet (Micronaut Security basic → JWT) + fronta ke kontrole
+- [ ] F1.8 Hromadné zadání výsledků karty, ruční kurzy
+- [ ] F1.9 Import historie (`:app:importHistory`, `POST /admin/import/history`), shoda Elo se simulací UFC
 
 ## F2–F6
 
@@ -62,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-29 | F1 | Výčty v DB jako `text` + `CHECK`; `bout.announced_at` je `GENERATED ... STORED` (`LEAST` ze tří časů); `bout_result.outcome` (WIN/DRAW/NO_CONTEST) navíc, vítěz jen u WIN; `ingest_event` unikátní jen mimo `DUPLICATE` (duplicity se ukládají); `fighter.normalized_name` a `merged_into_id` navíc (párování, sloučení); `fighter.division` nullable (ne všude známá) | plán popisuje sloupce jen přibližně; takhle jdou invarianty hlídat v DB |
 | 2026-10-29 | F0 | Verze: Kotlin 2.0.21, KSP 2.0.21-1.0.28, Micronaut platforma 4.10.22 (ne 5.x), Gradle 8.14.3, detekt 1.23.8, ktlint plugin 13.1.0, Testcontainers 1.21.4 | plán říká Micronaut 4; Kotlin 2.0.21 je verze, na které běží detekt 1.23 |
 | 2026-10-29 | F0 | Balíček `com.fightexchange` (`…rules`, aplikace v `com.fightexchange`) | – |
 | 2026-10-29 | F0 | `Money` je `@JvmInline value class` nad `Long`; sazby a faktory jsou `Double`, výsledek se zaokrouhlí `HALF_EVEN` jednou na konci funkce | peníze nikdy v `Double`, ale exp/kurzy se jinak počítat nedají |
@@ -83,8 +96,12 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-Start F1 (Sportovní data a admin): rozepsat úkoly F1.x do sekce F1 podle `plan.md`, první PR
-`[F1] Tabulky sportovních dat (Flyway)` – `organization`, `fighter`, `event`, `bout`, … a ingest jádro.
+F1.2: ingest jádro v `app/.../ingest/` – `IngestService.submit` (uložení do `ingest_event`, duplicita
+`source`+`external_key` → `DUPLICATE`), sealed třídy payloadů s verzí schématu a `IngestProcessor`
+(NEW události v pořadí přijetí, každá v jedné transakci). Pak F1.3 `FighterMatcher`.
+
+Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
+uživatel `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test`.
 
 ## Otevřené otázky
 
