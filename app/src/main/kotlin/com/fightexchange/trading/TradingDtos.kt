@@ -88,3 +88,45 @@ data class CursorPage<T>(
     val items: List<T>,
     val nextCursor: Long?,
 )
+
+@Serdeable
+data class TradeRequest(
+    /** BUY, SELL, SHORT_OPEN or SHORT_CLOSE. */
+    val kind: String?,
+    val fighterId: Long?,
+    /** Client chosen; a repeated request with the same key returns the stored trade instead of trading again. */
+    val idempotencyKey: String? = null,
+)
+
+@Serdeable
+data class ViolationDto(
+    val code: String,
+    val message: String,
+)
+
+/** What a trade would cost right now. [cashChange] is signed (negative = cash leaves the portfolio). */
+@Serdeable
+data class QuoteDto(
+    val kind: String,
+    val fighterId: Long,
+    val fighterName: String,
+    val price: Long,
+    val fee: Long,
+    val extraFee: Long,
+    val freeBuy: Boolean,
+    val cashChange: Long,
+    val cashAfter: Long,
+    val buysThisWeek: Int,
+    val freeBuysLeft: Int,
+    val firstWeek: Boolean,
+    val allowed: Boolean,
+    val violations: List<ViolationDto>,
+)
+
+@Serdeable
+data class TradeResultDto(
+    val trade: TradeDto,
+    val cash: Long,
+    /** True when the idempotency key had been used and the stored trade is returned. */
+    val replayed: Boolean,
+)
