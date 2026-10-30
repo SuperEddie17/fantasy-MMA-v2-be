@@ -3,6 +3,10 @@ micronaut:
     name: fight-exchange
   server:
     port: ${PORT:8080}
+    # History CSV uploads (the UFC dataset is several MB).
+    max-request-size: 64MB
+    multipart:
+      max-file-size: 64MB
 
   security:
     authentication: bearer

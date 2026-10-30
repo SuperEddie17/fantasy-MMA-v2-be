@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.options.Option
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.allopen)
@@ -55,6 +57,35 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
 }
 
+// ./gradlew :app:importHistory --file=ufc-master.csv [--organization=UFC]
+abstract class ImportHistory : JavaExec() {
+    @get:Input
+    @get:Optional
+    @get:Option(option = "file", description = "CSV file with the bout history")
+    abstract val file: Property<String>
+
+    @get:Input
+    @get:Optional
+    @get:Option(option = "organization", description = "Organization code (default UFC)")
+    abstract val organization: Property<String>
+}
+
+tasks.register<ImportHistory>("importHistory") {
+    group = "application"
+    description = "Imports a history CSV and rates it chronologically"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.fightexchange.ImportHistoryKt"
+    argumentProviders.add(
+        CommandLineArgumentProvider {
+            listOfNotNull(
+                file.orNull?.let { "--file=$it" },
+                organization.orNull?.let { "--organization=$it" },
+            )
+        },
+    )
+}
+
 tasks.test {
     useJUnitPlatform()
+    systemProperty("golden.dir", rootProject.file("rules/src/test/resources/golden").path)
 }

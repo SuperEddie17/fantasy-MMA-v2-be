@@ -29,13 +29,47 @@ class EloService {
         conn: Connection,
         boutId: Long,
         rules: RuleSet = RuleSet.V2,
+    ) = recalculate(conn, boutId, setOf(boutId), rules)
+
+    /**
+     * Rates every bout in [boutIds] (new bouts, e.g. a history import) and, like [recalculateFrom], every later
+     * bout whose fighters they touch. Bouts outside the set are only recalculated when a fighter is dirty.
+     */
+    fun recalculateBouts(
+        conn: Connection,
+        boutIds: Set<Long>,
+        rules: RuleSet = RuleSet.V2,
+    ) {
+        val first = firstBout(conn, boutIds) ?: return
+        recalculate(conn, first, boutIds, rules)
+    }
+
+    /** The chronologically first of [boutIds], by (event start, bout id). */
+    private fun firstBout(
+        conn: Connection,
+        boutIds: Set<Long>,
+    ): Long? =
+        conn
+            .prepareStatement(
+                "SELECT b.id FROM bout b JOIN event e ON e.id = b.event_id WHERE b.id = ANY (?) " +
+                    "ORDER BY e.starts_at, b.id LIMIT 1",
+            ).use { ps ->
+                ps.setArray(1, conn.createArrayOf("bigint", boutIds.toTypedArray()))
+                ps.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+            }
+
+    private fun recalculate(
+        conn: Connection,
+        boutId: Long,
+        forced: Set<Long>,
+        rules: RuleSet,
     ) {
         val bouts = ratedBoutsFrom(conn, boutId)
         if (bouts.isEmpty() || bouts.first().id != boutId) return
         val dirty = mutableSetOf<Long>()
         val ratings = mutableMapOf<Long, Double>()
         for (bout in bouts) {
-            if (bout.id != boutId && bout.fighterA !in dirty && bout.fighterB !in dirty) continue
+            if (bout.id !in forced && bout.fighterA !in dirty && bout.fighterB !in dirty) continue
             deleteRows(conn, bout.id)
             dirty += bout.fighterA
             dirty += bout.fighterB
@@ -67,9 +101,8 @@ class EloService {
     ): Double =
         conn
             .prepareStatement(
-                "SELECT r.rating_after FROM elo_rating r JOIN bout b ON b.id = r.bout_id " +
-                    "JOIN event e ON e.id = b.event_id WHERE r.fighter_id = ? " +
-                    "AND (e.starts_at, b.id) < (?, ?) ORDER BY e.starts_at DESC, b.id DESC LIMIT 1",
+                "SELECT rating_after FROM elo_rating WHERE fighter_id = ? " +
+                    "AND (rated_at, bout_id) < (?, ?) ORDER BY rated_at DESC, bout_id DESC LIMIT 1",
             ).use { ps ->
                 ps.setLong(1, fighterId)
                 ps.setTimestamp(2, Timestamp.from(bout.startsAt))

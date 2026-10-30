@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.8 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.9 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -60,7 +60,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.6 Veřejné čtecí endpointy: `/api/v1/organizations`, `/fighters`, `/fighters/{id}`, `/events`, `/events/{id}` (`SportController`, `SportQueries`), `SportApiTest`
 - [x] F1.7 Admin API + statický admin účet (`POST /login` → JWT, `ROLE_ADMIN`) + fronta ke kontrole (`AdminController`, `ReviewService`, `FighterMerge`, Flyway `V005`), `AdminApiTest`
 - [x] F1.8 Hromadné zadání výsledků karty (`POST /admin/events/{id}/results`), ruční kurzy (`POST /admin/bouts/{id}/odds`), `AdminApiTest`
-- [ ] F1.9 Import historie (`:app:importHistory`, `POST /admin/import/history`), shoda Elo se simulací UFC
+- [x] F1.9 Import historie (`:app:importHistory --file=`, `POST /admin/import/history`), `HistoryImporter`, `EloService.recalculateBouts`, `HistoryImportTest` (Elo 7 061 zápasů UFC = simulace)
 
 ## F2–F6
 
@@ -74,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F1 | Import historie: CSV ve sloupcích `ufc-master.csv` (povinné `date`, `R_fighter`, `B_fighter`, `Winner`, `finish`; volitelné kurzy v americkém formátu, `finish_round`, `title_bout`, `no_of_rounds`, `gender`, `weight_class`). Zdroj `HISTORY`: event na den (`HIST-<ORG>-<datum>`), zápas `HIST-<ORG>-<datum>-<pořadí>`, zápasník = normalizované jméno; opakovaný import přeskočí existující zápasy. Zápasy se řadí podle data (stabilně), Elo se počítá novým `EloService.recalculateBouts` (množina nových zápasů se hodnotí vždy, ne jen ta, co se dotýkají „špinavých“ zápasníků). Bez `Winner` je výsledek no contest (jako `sim.py`), remíza jen když `finish` obsahuje „draw“; neznámá metoda s vítězem = `DEC_U`. Chybné řádky se přeskočí a hlásí (max. 20). Zápasníci se párují podle normalizovaného jména, takže 8 variant pravopisu v datech (`Da-Un Jung` / `Da Un Jung`) je jeden zápasník, kdežto `sim.py` je bere jako dva; test proto porovnává Elo podle normalizovaného jména. Dotaz na Elo před zápasem čte jen `elo_rating` (index podle zápasníka), původní join s `event` byl při hromadném importu pomalý | plán: import historie dá stejné Elo jako simulace; jedna pravda pro zápasníky napříč zdroji |
 | 2026-10-30 | F1 | Hromadné zadání karty: nejdřív se zvaliduje celé tělo (zápasy musí patřit k eventu, každý max. jednou, vítěz/bonusy existují) a při chybě se nezapíše nic (400); pak se výsledky zadávají po jednom přes ingest a odpověď (200) vrací stav každého zápasu (`APPLIED`/`NEEDS_REVIEW`/`REJECTED`). Ruční kurz: desetinný kurz > 1 u obou stran, `closing` označí závěrečný kurz, `takenAt` výchozí teď | chyba v jednom zápase nesmí nechat kartu napůl zadanou kvůli překlepu; neplatné kombinace se chytí předem |
 | 2026-10-30 | F1 | Admin API: admin formuláře jdou přes `IngestService` se `source = ADMIN` a zpracují se synchronně (201 vytvořeno / 200 změněno / 202 čeká ve frontě ke kontrole / 422 zamítnuto). Zápasníky v těle žádostí adresuje naše `id` (`FighterRef.id`), cizí zápasy a eventy se adresují přidaným `boutSource`/`eventSource` v payloadu (nepovinná pole na konci). `PATCH /bouts/{id}` umí i `announcedAt` (zapíše `announced_at_admin`) | admin edituje i zápasy ze zdrojů UFC/PFL, ne jen vlastní |
 | 2026-10-30 | F1 | Přihlášení: `POST /login` (JSON `username`/`password`) vrací JWT; účet z `ADMIN_USER`/`ADMIN_PASSWORD`, při prázdném hesle login nejde (bezpečné výchozí chování); `JWT_SECRET` volitelný, jinak se při startu vygeneruje náhodný. Chráněno je jen `/api/v1/admin/**`, zbytek (čtecí API, `/health`) zůstává veřejný. Plán říkal „basic → JWT“, basic jsem vynechal | jeden mechanismus místo dvou; plné účty přijdou ve F3 |
@@ -113,9 +114,12 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.9: import historie (`:app:importHistory`, `POST /api/v1/admin/import/history`) z CSV, kontrola shody Elo
-se simulací UFC (zdroj: `rules/src/test/resources/golden/fights.json`). Využij `EloService.recalculateFrom`
-a ingest. Každý úkol = vlastní větev a PR.
+F1 je funkčně hotová (F1.1–F1.9). Zbývá merge PR a ověření kritéria „admin zadá event za ≤ 15 minut“.
+Pak F2 – Trh a ceny: rozepsat úkoly F2 z [`plan.md`](plan.md) do trackeru a začít prvním z nich.
+Každý úkol = vlastní větev a PR.
+
+Pozor: PR #9–#11 (F1.6–F1.8) se mergovaly do mezilehlých větví, ne do `main`; do `main` se dostanou až s PR
+za F1.9 (větev je založená na `f1/f1.7-admin-api`, která je obsahuje).
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.

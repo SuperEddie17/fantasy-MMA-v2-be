@@ -1,7 +1,9 @@
 package com.fightexchange.admin
 
+import com.fightexchange.ingest.HistoryImporter
 import com.fightexchange.ingest.IngestPayload
 import io.micronaut.http.HttpResponse
+import io.micronaut.http.MediaType
 import io.micronaut.http.annotation.Body
 import io.micronaut.http.annotation.Controller
 import io.micronaut.http.annotation.Get
@@ -9,6 +11,7 @@ import io.micronaut.http.annotation.Patch
 import io.micronaut.http.annotation.PathVariable
 import io.micronaut.http.annotation.Post
 import io.micronaut.http.annotation.QueryValue
+import io.micronaut.http.multipart.CompletedFileUpload
 import io.micronaut.security.authentication.Authentication
 import java.time.Instant
 
@@ -23,6 +26,7 @@ class AdminController(
     private val lookups: AdminLookups,
     private val merge: FighterMerge,
     private val review: ReviewService,
+    private val history: HistoryImporter,
 ) {
     @Post("/fighters")
     fun createFighter(
@@ -232,6 +236,17 @@ class AdminController(
             bonuses = request.bonuses.map { IngestPayload.Bonus(byId(it.fighter), it.type) },
             weightMisses = request.weightMisses.map { byId(it) },
         )
+
+    @Post("/import/history", consumes = [MediaType.MULTIPART_FORM_DATA])
+    fun importHistory(
+        file: CompletedFileUpload,
+        @QueryValue(defaultValue = "UFC") organization: String,
+    ): HttpResponse<*> =
+        try {
+            HttpResponse.ok(history.import(file.inputStream.reader(), organization))
+        } catch (e: IllegalArgumentException) {
+            bad(e.message ?: "Invalid history CSV")
+        }
 
     private fun byId(id: Long) = IngestPayload.FighterRef(id = id)
 

@@ -7,9 +7,11 @@ import com.fightexchange.ingest.IngestProcessor
 import com.fightexchange.ingest.IngestService
 import io.micronaut.http.HttpRequest
 import io.micronaut.http.HttpStatus
+import io.micronaut.http.MediaType
 import io.micronaut.http.client.HttpClient
 import io.micronaut.http.client.annotation.Client
 import io.micronaut.http.client.exceptions.HttpClientResponseException
+import io.micronaut.http.client.multipart.MultipartBody
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest
 import io.micronaut.test.support.TestPropertyProvider
 import io.micronaut.transaction.TransactionOperations
@@ -451,5 +453,48 @@ class AdminApiTest :
         )
         val card = client.toBlocking().retrieve("/api/v1/events/$e")
         assertTrue(!card.contains("\"method\":\"DEC_U\""), card)
+    }
+
+    @Test
+    fun `history csv upload imports bouts, rates them and needs a token`() {
+        val csv =
+            "date,R_fighter,B_fighter,Winner,finish\n2020-01-02,Ann One,Bob Two,Red,KO/TKO\n" +
+                "2020-03-04,Ann One,Cee Three,Blue,U-DEC\n"
+        val upload =
+            MultipartBody
+                .builder()
+                .addPart("file", "history.csv", MediaType.TEXT_CSV_TYPE, csv.toByteArray())
+                .build()
+
+        fun request() =
+            HttpRequest
+                .POST("/api/v1/admin/import/history?organization=UFC", upload)
+                .contentType(MediaType.MULTIPART_FORM_DATA_TYPE)
+
+        val denied =
+            assertThrows(
+                HttpClientResponseException::class.java,
+            ) { client.toBlocking().exchange(request(), String::class.java) }
+        assertEquals(HttpStatus.UNAUTHORIZED, denied.status)
+
+        val response = client.toBlocking().exchange(request().bearerAuth(token()), String::class.java)
+        assertEquals(HttpStatus.OK, response.status)
+        assertTrue(response.body()!!.contains("\"importedBouts\":2"))
+        val fighters = client.toBlocking().retrieve("/api/v1/fighters?q=ann", String::class.java)
+        assertTrue(fighters.contains("Ann One"))
+
+        val bad =
+            MultipartBody.builder().addPart("file", "x.csv", MediaType.TEXT_CSV_TYPE, "date\n".toByteArray()).build()
+        val rejected =
+            assertThrows(HttpClientResponseException::class.java) {
+                client.toBlocking().exchange(
+                    HttpRequest
+                        .POST("/api/v1/admin/import/history", bad)
+                        .contentType(MediaType.MULTIPART_FORM_DATA_TYPE)
+                        .bearerAuth(token()),
+                    String::class.java,
+                )
+            }
+        assertEquals(HttpStatus.BAD_REQUEST, rejected.status)
     }
 }
