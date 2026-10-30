@@ -28,7 +28,8 @@ class HistoryImportTest : PostgresTest() {
         tx.executeWrite {
             it.connection.createStatement().use { s ->
                 s.execute(
-                    "DELETE FROM price_event; DELETE FROM price_daily; DELETE FROM market_listing; " +
+                    "DELETE FROM bout_price_bump; " +
+                        "DELETE FROM price_event; DELETE FROM price_daily; DELETE FROM market_listing; " +
                         "DELETE FROM odds_snapshot; DELETE FROM bout_bonus; DELETE FROM weight_miss; " +
                         "DELETE FROM bout_result; DELETE FROM elo_rating; DELETE FROM bout; DELETE FROM event; " +
                         "DELETE FROM fighter_external_id; DELETE FROM fighter",

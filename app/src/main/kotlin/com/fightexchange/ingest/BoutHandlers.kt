@@ -1,12 +1,17 @@
 package com.fightexchange.ingest
 
+import com.fightexchange.market.MarketService
+import com.fightexchange.market.PriceCause
+import com.fightexchange.market.PriceEventKind
 import jakarta.inject.Singleton
 import java.sql.Connection
 import java.sql.Timestamp
+import java.time.Instant
 
 @Singleton
 class BoutAnnouncedHandler(
     private val support: IngestSupport,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_ANNOUNCED
 
@@ -24,7 +29,8 @@ class BoutAnnouncedHandler(
             support.openReview(conn, event.id, ReviewReason.FIGHTER_MATCH)
             return HandlerOutcome.NEEDS_REVIEW
         }
-        insert(conn, event.source, eventId, payload, a, b)
+        val boutId = insert(conn, event.source, eventId, payload, a, b)
+        market.syncBout(conn, boutId, priceCause(event, boutId))
         return HandlerOutcome.APPLIED
     }
 
@@ -47,13 +53,13 @@ class BoutAnnouncedHandler(
         p: IngestPayload.BoutAnnounced,
         a: Long,
         b: Long,
-    ) {
+    ): Long {
         val admin = source == ADMIN_SOURCE
-        conn
+        return conn
             .prepareStatement(
                 "INSERT INTO bout (event_id, fighter_a_id, fighter_b_id, bout_type, source, external_id, " +
                     "announced_at_source, announced_at_seen, announced_at_admin) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             ).use { ps ->
                 val announced = p.announcedAt?.let { Timestamp.from(it) }
                 val now = Timestamp(System.currentTimeMillis())
@@ -66,7 +72,10 @@ class BoutAnnouncedHandler(
                 ps.setTimestamp(7, if (admin) null else announced)
                 ps.setTimestamp(8, if (admin) null else now)
                 ps.setTimestamp(9, if (admin) announced ?: now else null)
-                ps.executeUpdate()
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getLong(1)
+                }
             }
     }
 }
@@ -74,6 +83,7 @@ class BoutAnnouncedHandler(
 @Singleton
 class BoutChangedHandler(
     private val support: IngestSupport,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_CHANGED
 
@@ -107,6 +117,7 @@ class BoutChangedHandler(
                 ps.setLong(5, bout.id)
                 ps.executeUpdate()
             }
+        market.syncBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.ANNOUNCED))
         return HandlerOutcome.APPLIED
     }
 
@@ -124,6 +135,7 @@ class BoutChangedHandler(
 class BoutCancelledHandler(
     private val support: IngestSupport,
     private val policy: ConfirmationPolicy,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_CANCELLED
 
@@ -158,9 +170,25 @@ class BoutCancelledHandler(
                 ps.setLong(3, bout.id)
                 ps.executeUpdate()
             }
+        if (bout.status != "CANCELLED") {
+            market.cancelBout(
+                conn,
+                bout.id,
+                withdrawn,
+                payload.reason,
+                priceCause(event, bout.id, PriceEventKind.CANCELLED),
+            )
+        }
         return HandlerOutcome.APPLIED
     }
 }
+
+/** Reason for a price change caused by an ingest event; the market service refines the kind per change. */
+private fun priceCause(
+    event: StoredIngestEvent,
+    boutId: Long,
+    kind: PriceEventKind = PriceEventKind.ANNOUNCED,
+) = PriceCause(kind, Instant.now(), boutId, event.id)
 
 @Singleton
 class OddsSnapshotHandler(
