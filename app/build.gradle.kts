@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.options.Option
 
 plugins {
@@ -28,6 +29,10 @@ application {
     mainClass = "com.fightexchange.ApplicationKt"
 }
 
+// The season replay test compares with the Kotlin port of sim.py in the rules module's test sources.
+evaluationDependsOn(":rules")
+val rulesTestOutput = project(":rules").extensions.getByType<SourceSetContainer>()["test"].output
+
 dependencies {
     implementation(project(":rules"))
 
@@ -55,6 +60,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation(libs.jackson.kotlin)
     testImplementation(libs.testcontainers.postgresql)
+    testImplementation(rulesTestOutput)
 }
 
 // ./gradlew :app:importHistory --file=ufc-master.csv [--organization=UFC]

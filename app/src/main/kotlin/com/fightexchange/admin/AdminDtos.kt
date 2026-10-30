@@ -134,3 +134,24 @@ data class ReviewItemDto(
     val eventType: String,
     val payload: String,
 )
+
+@Serdeable
+data class DelistRequest(
+    val reason: String? = null,
+)
+
+/** Replays the market from the start of the UTC day [from] (`yyyy-MM-dd`). */
+@Serdeable
+data class ReplayRequest(
+    val from: java.time.LocalDate,
+)
+
+@Serdeable
+data class ReplayResultDto(
+    val from: Instant,
+    val to: Instant,
+    val steps: Int,
+    val listings: Int,
+    val priceEvents: Int,
+    val dailyRows: Int,
+)

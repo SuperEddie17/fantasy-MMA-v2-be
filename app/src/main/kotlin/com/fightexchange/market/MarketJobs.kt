@@ -33,7 +33,7 @@ open class MarketJobs(
 
     /** Returns the number of listings changed, or null when another instance holds the lock. */
     fun runInactivity(now: Instant): Int? =
-        locked("inactivity") { conn ->
+        locked(INACTIVITY_LOCK) { conn ->
             maintenance.applyInactivity(conn, now).also { log.info("InactivityJob: {} listings changed", it) }
         }
 
@@ -42,7 +42,7 @@ open class MarketJobs(
      * yet), so a missed night is caught up. Returns the number of rows written, or null when locked elsewhere.
      */
     fun closePricesThrough(last: LocalDate): Int? =
-        locked("price-daily") { conn ->
+        locked(PRICE_DAILY_LOCK) { conn ->
             val latest =
                 conn.createStatement().use { s ->
                     s.executeQuery("SELECT max(day) FROM price_daily").use { rs ->
@@ -63,14 +63,22 @@ open class MarketJobs(
     ): T? =
         tx.executeWrite { status ->
             val conn = status.connection
-            val got =
-                conn.prepareStatement("SELECT pg_try_advisory_xact_lock(hashtext(?))").use { ps ->
-                    ps.setString(1, "market-job:$name")
-                    ps.executeQuery().use { rs ->
-                        rs.next()
-                        rs.getBoolean(1)
-                    }
-                }
-            if (got) block(conn) else null
+            if (tryJobLock(conn, name)) block(conn) else null
         }
 }
+
+/** Takes the transaction-scoped advisory lock of the market job [name]; false when another transaction holds it. */
+fun tryJobLock(
+    conn: Connection,
+    name: String,
+): Boolean =
+    conn.prepareStatement("SELECT pg_try_advisory_xact_lock(hashtext(?))").use { ps ->
+        ps.setString(1, "market-job:$name")
+        ps.executeQuery().use { rs ->
+            rs.next()
+            rs.getBoolean(1)
+        }
+    }
+
+const val INACTIVITY_LOCK = "inactivity"
+const val PRICE_DAILY_LOCK = "price-daily"

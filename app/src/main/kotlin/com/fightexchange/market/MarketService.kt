@@ -31,6 +31,10 @@ data class PriceCause(
     val boutId: Long? = null,
     val ingestEventId: Long? = null,
     val note: String? = null,
+    /** False for a market replay catching up on history that is already logged: state changes, no `price_event`. */
+    val record: Boolean = true,
+    /** When set, Elo is read as of this instant (replay); otherwise the latest rating counts. */
+    val eloAsOf: Instant? = null,
 )
 
 data class Listing(
@@ -48,17 +52,21 @@ data class Listing(
  */
 @Singleton
 class MarketService {
-    /** Latest Elo of the fighter, or [RuleSet.eloStart] for a debutant. */
+    /** Latest Elo of the fighter (as of [asOf] when given), or [RuleSet.eloStart] for a debutant. */
     fun currentElo(
         conn: Connection,
         fighterId: Long,
         rules: RuleSet = RuleSet.V2,
+        asOf: Instant? = null,
     ): Double =
         conn
             .prepareStatement(
-                "SELECT rating_after FROM elo_rating WHERE fighter_id = ? ORDER BY rated_at DESC, id DESC LIMIT 1",
+                "SELECT rating_after FROM elo_rating WHERE fighter_id = ? " +
+                    (if (asOf != null) "AND rated_at <= ? " else "") +
+                    "ORDER BY rated_at DESC, id DESC LIMIT 1",
             ).use { ps ->
                 ps.setLong(1, fighterId)
+                if (asOf != null) ps.setTimestamp(2, Timestamp.from(asOf))
                 ps.executeQuery().use { rs -> if (rs.next()) rs.getDouble(1) else rules.eloStart }
             }
 
@@ -99,7 +107,7 @@ class MarketService {
         rules: RuleSet = RuleSet.V2,
     ): Boolean {
         if (listing(conn, fighterId) != null) return false
-        val base = Pricing.basePrice(currentElo(conn, fighterId, rules), rules)
+        val base = Pricing.basePrice(currentElo(conn, fighterId, rules, cause.eloAsOf), rules)
         conn
             .prepareStatement(
                 "INSERT INTO market_listing (fighter_id, status, base_value, price, listed_at) " +
@@ -153,20 +161,24 @@ class MarketService {
      * Brings the announcement bumps of a bout in line with its current fighters, type and the Elo of both sides:
      * a new bout adds `bump(type) + stronger-opponent bump` to each fighter's multiplier, a changed one only the
      * difference, and a fighter who left the bout gets their bump back. Each part is logged as its own price event.
+     * [asOpen] treats a bout that has meanwhile been cancelled or completed as still open (a replay of the moment
+     * it was announced).
      */
     fun syncBout(
         conn: Connection,
         boutId: Long,
         cause: PriceCause,
         rules: RuleSet = RuleSet.V2,
+        asOpen: Boolean = false,
     ) {
         val bout = boutSides(conn, boutId)
         val applied = bumps(conn, boutId)
         val current =
-            if (bout.status == "CANCELLED" || bout.status == "COMPLETED") {
+            if (!asOpen && (bout.status == "CANCELLED" || bout.status == "COMPLETED")) {
                 emptyMap()
             } else {
-                val elo = listOf(bout.fighterA, bout.fighterB).associateWith { currentElo(conn, it, rules) }
+                val elo =
+                    listOf(bout.fighterA, bout.fighterB).associateWith { currentElo(conn, it, rules, cause.eloAsOf) }
                 val diff = elo.getValue(bout.fighterB) - elo.getValue(bout.fighterA)
                 mapOf(
                     bout.fighterA to bumpFor(bout.type, diff, rules),
@@ -239,23 +251,23 @@ class MarketService {
      * Fight-week odds drift: for an open bout whose latest odds were taken within `driftWindow` of the event start,
      * each fighter's multiplier carries `Pricing.oddsDrift` (odds probability against Elo expectation). A newer
      * snapshot moves only the difference to what is applied; a bout that is cancelled, completed or has no odds
-     * in the window gets its drift taken back.
+     * in the window gets its drift taken back. In a replay (`cause.eloAsOf` set) only snapshots
+     * taken by then count; [asOpen] as in [syncBout].
      */
     fun driftBout(
         conn: Connection,
         boutId: Long,
         cause: PriceCause,
         rules: RuleSet = RuleSet.V2,
+        asOpen: Boolean = false,
     ) {
         val bout = boutSides(conn, boutId)
         val applied = drifts(conn, boutId)
         val target =
-            if (bout.status == "CANCELLED" ||
-                bout.status == "COMPLETED"
-            ) {
+            if (!asOpen && (bout.status == "CANCELLED" || bout.status == "COMPLETED")) {
                 emptyMap()
             } else {
-                targetDrift(conn, boutId, bout, rules)
+                targetDrift(conn, boutId, bout, cause, rules)
             }
         for (fighterId in applied.keys + target.keys) {
             val before = applied[fighterId] ?: 1.0
@@ -277,44 +289,50 @@ class MarketService {
         conn: Connection,
         boutId: Long,
         bout: BoutSides,
+        cause: PriceCause,
         rules: RuleSet,
     ): Map<Long, Double> {
-        val odds = latestOddsInWindow(conn, boutId) ?: return emptyMap()
-        val eloA = currentElo(conn, bout.fighterA, rules)
-        val eloB = currentElo(conn, bout.fighterB, rules)
+        val odds = latestOddsInWindow(conn, boutId, cause.eloAsOf) ?: return emptyMap()
+        val eloA = currentElo(conn, bout.fighterA, rules, cause.eloAsOf)
+        val eloB = currentElo(conn, bout.fighterB, rules, cause.eloAsOf)
         return mapOf(
             bout.fighterA to round6(Pricing.oddsDrift(odds.first, odds.second, eloA, eloB, rules)),
             bout.fighterB to round6(Pricing.oddsDrift(odds.second, odds.first, eloB, eloA, rules)),
         )
     }
 
-    /** (odds A, odds B) of the newest snapshot taken at most [DRIFT_WINDOW] before the event starts. */
+    /** (odds A, odds B) of the newest snapshot (taken by [asOf], if given) at most [DRIFT_WINDOW] before the event. */
     private fun latestOddsInWindow(
         conn: Connection,
         boutId: Long,
+        asOf: Instant?,
     ): Pair<Double, Double>? =
         conn
             .prepareStatement(
                 "SELECT o.odds_a, o.odds_b FROM odds_snapshot o JOIN bout b ON b.id = o.bout_id " +
                     "JOIN event e ON e.id = b.event_id WHERE o.bout_id = ? " +
                     "AND o.taken_at >= e.starts_at - make_interval(days => ?) " +
-                    "AND o.taken_at <= e.starts_at ORDER BY o.taken_at DESC, o.id DESC LIMIT 1",
+                    "AND o.taken_at <= e.starts_at " + (if (asOf != null) "AND o.taken_at <= ? " else "") +
+                    "ORDER BY o.taken_at DESC, o.id DESC LIMIT 1",
             ).use { ps ->
                 ps.setLong(1, boutId)
                 ps.setInt(2, DRIFT_WINDOW.toDays().toInt())
+                if (asOf != null) ps.setTimestamp(3, Timestamp.from(asOf))
                 ps.executeQuery().use { rs -> if (rs.next()) rs.getDouble(1) to rs.getDouble(2) else null }
             }
 
     /**
      * A finished bout: its announcement bump and drift are gone, so each fighter's multiplier falls back to what
      * their other open bouts still add (1 when none) and the base value follows the new Elo. Fighters whose Elo
-     * moved only because a later bout was recalculated get the new base value as well.
+     * moved only because a later bout was recalculated get the new base value as well ([refreshLater]; a replay
+     * turns it off because it settles those later bouts itself).
      */
     fun settleBout(
         conn: Connection,
         boutId: Long,
         cause: PriceCause,
         rules: RuleSet = RuleSet.V2,
+        refreshLater: Boolean = true,
     ) {
         val bout = boutSides(conn, boutId)
         for (table in listOf("bout_price_bump", "bout_price_drift")) {
@@ -334,6 +352,7 @@ class MarketService {
             )
             markFought(conn, fighterId, boutId)
         }
+        if (!refreshLater) return
         val later =
             conn
                 .prepareStatement(
@@ -379,7 +398,7 @@ class MarketService {
         rules: RuleSet,
     ) {
         val current = listing(conn, fighterId)?.takeIf { it.status != "DELISTED" } ?: return
-        val base = Pricing.basePrice(currentElo(conn, fighterId, rules), rules)
+        val base = Pricing.basePrice(currentElo(conn, fighterId, rules, cause.eloAsOf), rules)
         val mult = multiplier?.let(::round6)
         if (base == current.baseValue && (mult == null || mult == round6(current.eventMultiplier))) return
         apply(conn, fighterId, cause, baseValue = base, resetMultiplier = mult, rules = rules)
@@ -611,6 +630,7 @@ class MarketService {
         before: Money?,
         after: Money,
     ) {
+        if (!cause.record) return
         conn
             .prepareStatement(
                 "INSERT INTO price_event (fighter_id, at, kind, factor, price_before, price_after, " +

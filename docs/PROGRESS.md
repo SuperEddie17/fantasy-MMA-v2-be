@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F2 – Trh a ceny
-- **Stav fáze:** rozpracováno (F2.1–F2.6 hotovo; F0 a F1 v `main`, PR #2 a #12)
+- **Stav fáze:** hotovo, čeká na merge (F2.1–F2.8; F2.1–F2.6 v `main`, F2.7+F2.8 v jednom PR)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -17,7 +17,7 @@
 | --- | --- | --- | --- |
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
 | F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
-| F2 | Trh a ceny | 🟡 rozpracováno | – |
+| F2 | Trh a ceny | 🔵 v review (F2.7+F2.8) | #14–#18, F2.7+F2.8 |
 | F3 | Hráči, portfolio, obchodování | ⚪ nezačato | – |
 | F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
 | F5 | Automatická data | ⚪ nezačato | – |
@@ -74,8 +74,8 @@ a endpoint historie vrací graf s vysvětlením každého pohybu.
 - [x] F2.4 Reakce na `odds.snapshot` (drift v týdnu zápasu), `ranking.snapshot` a `bout.result` (nové Elo, multiplikátor = 1): `MarketService.driftBout`/`applyRanking`/`settleBout`, `Pricing.rankingFactor`, Flyway `V008__market_reactions.sql`, `MarketResultReactionsTest`
 - [x] F2.5 `InactivityJob`, `PriceDailyJob` (`MarketJobs` `@Scheduled` + advisory lock v Postgresu, idempotentní): `MarketMaintenance.applyInactivity`/`closeDay`, `MarketService.delist`, Flyway `V009__inactivity_ticks.sql`, `MarketJobsTest`
 - [x] F2.6 Čtecí endpointy `/api/v1/market`, `/{id}`, `/{id}/history`, `/{id}/events` (`MarketController`, `MarketQueries`), `MarketApiTest`
-- [ ] F2.7 Admin: `POST /admin/market/{id}/delist`, `POST /admin/market/replay`
-- [ ] F2.8 Přehrání roku 2025 přes ingest = ceny simulace (±1 %)
+- [x] F2.7 Admin: `POST /admin/market/{id}/delist`, `POST /admin/market/replay` (`AdminMarketController`, `MarketAdmin`, `MarketReplay`, Flyway `V010__bout_cancelled_at.sql`), `AdminMarketApiTest`, `MarketReplayTest`
+- [x] F2.8 Přehrání roku 2025 přes ingest = ceny simulace (±1 %): `Season2025PricesTest` (import historie → replay → týdenní kroky přes ingest s ovladatelnými hodinami `MutableClock`), porovnání s portem `sim.py` z testů modulu `rules`
 
 ## F3–F6
 
@@ -89,6 +89,10 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F2 | Replay (`MarketReplay.replay(from, to)`, `POST /admin/market/replay {"from":"yyyy-MM-dd"}`): přestaví trh z dat o sportu (zápasníci, zápasy, kurzy, žebříčky, Elo) v časovém pořadí. Smaže `price_event` od `from`, `price_daily` od dne `from`, všechny listingy a bumpy/drifty a stav listingů odehraje znovu; před `from` jen „potichu“ (`PriceCause.record = false`: mění stav, nezapisuje `price_event`, staré řádky před `from` zůstanou), od `from` zapisuje události, denní `InactivityJob` ve 03:00 UTC a nakonec uzavře `price_daily` do včerejška. Elo se čte k okamžiku kroku (`PriceCause.eloAsOf`), kurzy jen do tohoto okamžiku. Co tabulky už nevědí, se aproximuje: zápas je ohlášen v nejstarším známém čase ohlášení se současnými zápasníky a typem, zrušení v novém `bout.cancelled_at` (V010; u starších zrušení začátek eventu), výsledek na začátku eventu. Zápasy dokončené před `from` se jen vypořádají (bump by stejně zanikl); zápasníci se listují při prvním setkání (IPO) nebo v `fighter.created_at`. Zámek jako u úloh (`pg_try_advisory_xact_lock` na obě), obsazeno = 409. Import historie tak dostane listingy: replay od data po importu je „IPO historie“ | plán říká jen „přepočet cen od data“; ingest log nejde přehrát, protože by přepsal i data o sportu |
+| 2026-10-30 | F2 | Neaktivita se strhává jako `sim.py` po týdenních krocích: první −1 % hned, jak mezera přesáhne `inactiveWeeks` (183. den), další po 7 dnech (`ticks = ceil((dny − 7·inactiveWeeks) / 7)`, dřív `floor(týdny) − 26`, tj. o jeden tik později a v mezi-týdnech o jeden méně → ceny se rozcházely o 1 %). „Ohlášený zápas“ pro neaktivitu = řádek v `bout_price_bump` (ne stav zápasu v DB), aby šlo trh přehrát k okamžiku v minulosti | koncové ceny vs. simulace ±1 % (F2.8); stav `bout.status` je jen aktuální | 
+| 2026-10-30 | F2 | Handlery ingestu berou čas z beanu `java.time.Clock` (`Clocks`, výchozí UTC systémové hodiny; `IngestSupport.now()`) místo `Instant.now()`; test `MutableClock` (`test.clock=mutable`) ho posouvá po týdnech | přehrání sezóny 2025 přes skutečný ingest s časem událostí |
+| 2026-10-30 | F2 | Test F2.8 (`Season2025PricesTest`) vynechává zápasníky, jejichž jméno je v datech psáno dvěma způsoby (a všechny, s kým se od 2024 potkali): simulace je bere jako dva zápasníky, my jako jednoho, takže se Elo soupeřů a tím ceny oprávněně liší. Zápasy prvních šesti týdnů sezóny simulace nikdy neohlásí (zná je jen jako „blížící se“), test je ohlásí před startem; po jejich odzápasení se multiplikátor stejně vrací na 1. Zbytek (~600 zápasníků) sedí do ±1 %, stažení ze stejné množiny jako v simulaci | rozdíl jmen je známá odchylka z F1.9 |
 | 2026-10-30 | F2 | Čtecí trh: přehled řadí podle `price` (výchozí) nebo `change7d` sestupně a stránkuje `?offset=&limit=` (`nextOffset`), protože řazený seznam nemá stabilní id kurzor; neznámé `sort` = 400. Přehled vynechává `DELISTED` a sloučené zápasníky, detail stažený listing vrací. `change7d` = zlomek (0,05 = +5 %): cena nyní / `price_after` poslední události do před 7 dny, jinak `price_before` první události, bez událostí 0. `/events` jde od nejnovější podle `id` s kurzorem `?after=` (`{items, nextCursor}`), `/history` vrací `price_daily` od nejstaršího, `?from=&to=` jako `yyyy-MM-dd`; všechny tři 404 bez listingu | plán uvádí jen cesty; řazení podle změny nejde kurzorem podle id |
 | 2026-10-30 | F2 | Úlohy: místo ShedLocku se zámek bere `pg_try_advisory_xact_lock` v transakci úlohy (bez nové závislosti; zámek zmizí s transakcí, jiná instance běh přeskočí). Neaktivita: referenční čas = `last_fight_at`, jinak `listed_at` (zápasník, který nikdy nebojoval, taky stárne); za každý celý týden nad `inactiveWeeks` jedno −1 % (`weeks = dny/7` jako `sim.py`), počet už strhnutých týdnů drží `market_listing.inactivity_ticks` (`V009`), takže opakovaný běh nic nemění a vynechané noci se doženou jednou `price_event` `INACTIVITY` s faktorem `0,99^n`; s ohlášeným zápasem (`bout.status` `ANNOUNCED`/`CONFIRMED`) se nestrhává a zameškané týdny se neúčtují zpětně; po `delistWeeks` bez ohlášeného zápasu `delist` (`DELIST`, cena zůstane). Po zápase `settleBout` vrací multiplikátor na bumpy, takže neaktivita se tím smaže. `PriceDailyJob` v 00:05 UTC dožene všechny dny po posledním uzavřeném do včerejška; open = cena na konci předchozího dne (jinak `price_before` první události), dny bez události nesou poslední cenu; přepis dne je `ON CONFLICT DO UPDATE`, aby replay (F2.7) opravil historii | plán: „idempotentní, znovuspuštění za stejný den nic nezmění“; `sim.py` neaktivitu počítá týdně |
 | 2026-10-30 | F2 | Kurzy: `driftBout` platí jen pro otevřený zápas a nejnovější snapshot z posledních 7 dní před začátkem eventu (jako týden zápasu v `sim.py`); aplikovaný faktor drží `bout_price_drift` (`V008`), takže novější snapshot posune jen rozdíl a zrušení drift vrátí. Výsledek: `settleBout` smaže bump i drift zápasu, multiplikátor nastaví na součin bumpů/driftů jeho *jiných* otevřených zápasů (1, když žádné), základ přepočte z nového Elo, zapíše `last_fight_at` a přecení i zápasníky, kterým se Elo změnilo jen přepočtem pozdějších zápasů (`ELO`); `price_event` se nezapisuje, pokud se nic nezměnilo (opravený výsledek). Pořadí: `bout.result` po Elo. Ranking: nová pole `RuleSet` `rankingStep` 0,5 % za pozici, `rankingCap` ±5 % na snapshot, `rankingUnranked` 16 (chybějící pozice), v DB doplněno migrací `V008`; první snapshot divize je jen základ, dvakrát poslaný snapshot cenu nehne | plán uvádí „koeficient v rule_set“ bez hodnoty; `sim.py` ranking nezná, hodnoty jsou odhad k doladění |
@@ -135,9 +139,11 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1 je hotová a v `main`. F2 běží: F2.1–F2.6 jsou hotové, další je **F2.7** – admin `POST /admin/market/{id}/delist`
-a `POST /admin/market/replay` (přepočet cen od data po opravách dat; `price_daily` se při replayi přepisuje `ON CONFLICT DO UPDATE`).
-Každý úkol = vlastní větev a PR (`f2/f2.7-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+F2 je hotová (po merge PR s F2.7+F2.8). Další je **F3 – Hráči, portfolio, obchodování**: rozepsat úkoly F3.1… do
+tohoto souboru (podle [`plan.md`](plan.md#fáze-3--hráči-portfolio-a-obchodování-23-týdny)) a začít schématem.
+Každý úkol = vlastní větev a PR (`f3/f3.1-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+Po merge F2 spusť v ostrém provozu po importu historie `POST /api/v1/admin/market/replay` od data importu
+(vytvoří listingy a ceny z Elo historie).
 Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,

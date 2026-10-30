@@ -92,12 +92,27 @@ class MarketJobsTest : PostgresTest() {
     }
 
     @Test
+    fun `the first decay comes on the day the gap exceeds 26 weeks and the next one a week later`() {
+        val id = fighter("a2")
+        val start = price(id)
+        val day = { n: Long -> fought.plusSeconds(n * 86400 + 3600) }
+        jobs.runInactivity(day(182))
+        assertEquals(start, price(id))
+        jobs.runInactivity(day(183))
+        near(start * 0.99, price(id))
+        jobs.runInactivity(day(189))
+        near(start * 0.99, price(id))
+        jobs.runInactivity(day(190))
+        near(start * 0.99.pow(2), price(id))
+    }
+
+    @Test
     fun `running again in the same week changes nothing and a missed week is caught up`() {
         val id = fighter("b")
         val start = price(id)
         jobs.runInactivity(weeksAfter(27))
         val once = price(id)
-        jobs.runInactivity(weeksAfter(27).plusSeconds(86400))
+        jobs.runInactivity(weeksAfter(27).plusSeconds(3600))
         assertEquals(once, price(id))
         jobs.runInactivity(weeksAfter(30))
         near(start * 0.99.pow(4), price(id))
@@ -113,9 +128,10 @@ class MarketJobsTest : PostgresTest() {
         val announced = price(id)
         jobs.runInactivity(weeksAfter(35))
         assertEquals(announced, price(id))
-        exec("UPDATE bout SET status = 'CANCELLED'")
+        send(IngestPayload.BoutCancelled("b1"))
+        val cancelled = price(id)
         jobs.runInactivity(weeksAfter(36))
-        near(announced * 0.99, price(id))
+        near(cancelled * 0.99, price(id))
     }
 
     @Test
