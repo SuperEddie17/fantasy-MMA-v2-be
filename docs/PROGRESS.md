@@ -87,7 +87,7 @@ a obchody v uzávěrce se odmítnou.
 - [x] F3.2 Účty: `POST /api/v1/auth/register`, `/auth/login` (JWT, `ROLE_USER`), `GET /api/v1/me` (`AuthController`, `UserService`, `PasswordHasher`, `common/Problem.kt`), `AuthApiTest`
 - [x] F3.3 Sezóny a portfolia: admin `POST /admin/seasons`, veřejné `GET /seasons`, `POST /portfolios` (rozpočet 100 M), `GET /portfolios`, `/portfolios/{id}` (+ ocenění), `/ledger`, `/trades` (`SeasonService`, `PortfolioService`, `PortfolioController`, `RuleSets`), `PortfolioApiTest`
 - [x] F3.4 `TradingService`: nákup, prodej, short (limity soupisky, uzávěrka, poplatky, přirážka, týdenní čítač, idempotence, zámek portfolia): `TradingService`, `TradingReads`, `TradingServiceTest` (16 testů vč. souběžných nákupů)
-- [ ] F3.5 Endpointy `POST /portfolios/{id}/quote`, `POST /portfolios/{id}/trades`, chyby jako `application/problem+json`
+- [x] F3.5 Endpointy `POST /portfolios/{id}/quote`, `POST /portfolios/{id}/trades` (201 nový obchod, 200 opakovaný `idempotencyKey`), chyby jako `application/problem+json` (`PortfolioController`), `TradeApiTest`
 - [ ] F3.6 `DemandJob` (hodinově, faktor poptávky → `price_event` `DEMAND`)
 - [ ] F3.7 Stažení z trhu: výplata všech lotů (`FORCED_SELL`, `DELIST_PAYOUT`), noční kontrola ledgeru proti `cash_cached`
 - [ ] F3.8 Souběh a přejímka: souběžné nákupy, 10–20 hráčů přes API
