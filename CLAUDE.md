@@ -13,10 +13,13 @@ co je hotové a co je další krok. Než začneš cokoli dělat, přečti:
   - větev: `f0/gradle-skeleton`, `f1/ingest-core`, … (nebo přidělená větev agenta)
   - titulek PR: `[F0] Kostra Gradle + Micronaut`
   - commit: `[F0.5] rules: Elo a ceny` (číslo za tečkou = číslo úkolu v plánu fáze)
-- **Vše jde přes pull request.** Nikdy nepushuj ani nemerguj přímo do `master`/`main`;
-  každá změna (i dokumentace a tracker) se dělá na větvi a do hlavní větve se dostane
-  jen přes PR po zelené CI. Agent otevře PR pro každou dokončenou část plánu
-  (fázi nebo ucelenou skupinu úkolů) bez další žádosti; merguje až uživatel.
+- **Vše jde přes pull request, jeden úkol = jeden PR.** Nikdy nepushuj ani nemerguj přímo
+  do `master`/`main`; každá změna (i dokumentace a tracker) se dělá na větvi a do hlavní větve
+  se dostane jen přes PR po zelené CI. Každý úkol z plánu (F1.6, F1.7, …) má vlastní větev
+  `f<fáze>/<úkol>-<slug>` (např. `f1/f1.6-read-endpoints`) a vlastní PR s titulkem
+  `[F1.6] Veřejné čtecí endpointy`. PR otevři hned po dokončení úkolu, ne zpětně za skupinu úkolů.
+  Navazuje-li úkol na nemergovaný PR, založ větev z něj a nastav ten PR jako base.
+  Agent PR otevírá sám bez další žádosti; merguje až uživatel.
 - **Každý PR aktualizuje `docs/PROGRESS.md`**: odškrtne hotové úkoly, doplní rozhodnutí
   a přepíše sekci „Další krok“. PR bez aktualizace trackeru není hotový.
 - Rozhodnutí, která se odchylují od `docs/plan.md` nebo ho upřesňují, zapiš do
