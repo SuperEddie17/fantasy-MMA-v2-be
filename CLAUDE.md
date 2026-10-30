@@ -15,8 +15,8 @@ co je hotové a co je další krok. Než začneš cokoli dělat, přečti:
   - commit: `[F0.5] rules: Elo a ceny` (číslo za tečkou = číslo úkolu v plánu fáze)
 - **Vše jde přes pull request.** Nikdy nepushuj ani nemerguj přímo do `master`/`main`;
   každá změna (i dokumentace a tracker) se dělá na větvi a do hlavní větve se dostane
-  jen přes PR po zelené CI. Agent PR otevře jen na výslovnou žádost uživatele
-  a merguje až uživatel.
+  jen přes PR po zelené CI. Agent otevře PR pro každou dokončenou část plánu
+  (fázi nebo ucelenou skupinu úkolů) bez další žádosti; merguje až uživatel.
 - **Každý PR aktualizuje `docs/PROGRESS.md`**: odškrtne hotové úkoly, doplní rozhodnutí
   a přepíše sekci „Další krok“. PR bez aktualizace trackeru není hotový.
 - Rozhodnutí, která se odchylují od `docs/plan.md` nebo ho upřesňují, zapiš do

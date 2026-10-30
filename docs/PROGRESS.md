@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1, F1.2 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.3 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -54,7 +54,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 
 - [x] F1.1 Flyway `V003__sport_data.sql`: všechny sportovní tabulky + seed 5 organizací, `SportSchemaTest`
 - [x] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor` (`IngestCoreTest`)
-- [ ] F1.3 `FighterMatcher` (external id → normalizované jméno + divize → `review_item`)
+- [x] F1.3 `FighterMatcher` (external id → normalizované jméno + divize; nejistá shoda vrací `Uncertain`, `review_item` zakládá handler v F1.4), `FighterMatcherTest`
 - [ ] F1.4 Zpracování typů událostí (`fighter.upsert` … `ranking.snapshot`), konfigurace potvrzování adminem
 - [ ] F1.5 Elo po `bout.result`, oprava výsledku = nová verze + přepočet od zápasu dál
 - [ ] F1.6 Veřejné čtecí endpointy (organizace, zápasníci, eventy)
@@ -74,6 +74,8 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | proces | Pro každou dokončenou část plánu agent otevře PR sám (bez další žádosti); merguje až uživatel. Nahrazuje dřívější „PR jen na žádost“ | výslovný pokyn uživatele, zapsáno do `CLAUDE.md` |
+| 2026-10-30 | F1 | `FighterMatcher.match` vrací `Matched` (external id, nebo jedinečné normalizované jméno s potvrzující divizí), `Uncertain` (jméno sedí, ale divize nepotvrzuje / víc kandidátů) a `NotFound`; hledá se i s obráceným pořadím jmen, jen v dané organizaci a mimo sloučené zápasníky; external id sloučeného zápasníka vede na cílového | plán: nejistá shoda → review; automaticky se páruje jen to, co je jisté |
 | 2026-10-30 | proces | Všechny změny (i dokumentace) jdou do `master` jen přes PR po zelené CI, nikdy přímým pushem; PR otevírá agent jen na žádost, merguje uživatel | pokyn uživatele, zapsáno do `CLAUDE.md` |
 | 2026-10-30 | F1 | Ingest přes JDBC a `TransactionOperations<Connection>` (ne Micronaut Data repozitáře); pool Micronaut Data je `autoCommit=false`, transakce proto řídí jen `tx.executeWrite/Read`; testy ingestu jsou `@MicronautTest(transactional = false)` | jedna transakce na událost s rollbackem při výjimce handleru; přímý `DataSource.connection` mimo transakci nefunguje |
 | 2026-10-30 | F1 | `IngestPayload` je `sealed interface` s `@JsonTypeInfo` (`type` = `fighter.upsert` …) a `schemaVersion`; zpracování typů je přes rozhraní `IngestHandler` (jeden bean na typ, F1.4); událost bez handleru zůstane `NEW`, chyba handleru = `REJECTED` jen pro ni | rozšiřitelné bez zásahu do procesoru |
@@ -99,9 +101,9 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.3: `FighterMatcher` v `app/.../ingest/` – nejdřív `fighter_external_id`, pak `normalized_name`
-(bez diakritiky, malá písmena, přehozené pořadí jmen) + divize; nejistá shoda → `review_item`
-(`FIGHTER_MATCH`). Pak F1.4 handlery pro jednotlivé typy událostí (`IngestHandler`).
+F1.4: handlery `IngestHandler` pro typy `fighter.upsert` … `ranking.snapshot` (jeden bean na typ), využít
+`FighterMatcher`; `Uncertain` → `review_item` (`FIGHTER_MATCH`) a `HandlerOutcome.NEEDS_REVIEW`. Konfigurace,
+které události čekají na potvrzení adminem (výchozí `bout.result`, `bout.cancelled`). Pak F1.5 Elo.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
