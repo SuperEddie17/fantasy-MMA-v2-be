@@ -57,6 +57,15 @@ object Pricing {
         return 1.0 + (rules.rankingStep * gained).coerceIn(-rules.rankingCap, rules.rankingCap)
     }
 
+    /**
+     * Demand factor from the net buys (buys + short closes - sells - short opens) of a fighter over the last
+     * 7 days and the number of active portfolios: 1 + demandSensitivity x net / portfolios, within 1 +- demandCap.
+     */
+    fun demandFactor(netBuys: Int, portfolios: Int, rules: RuleSet = RuleSet.V2): Double {
+        if (portfolios <= 0) return 1.0
+        return 1.0 + (rules.demandSensitivity * netBuys / portfolios).coerceIn(-rules.demandCap, rules.demandCap)
+    }
+
     /** Applies the demand factor, capped to 1 ± demandCap. */
     fun applyDemand(price: Money, factor: Double, rules: RuleSet = RuleSet.V2): Money =
         price * factor.coerceIn(1.0 - rules.demandCap, 1.0 + rules.demandCap)

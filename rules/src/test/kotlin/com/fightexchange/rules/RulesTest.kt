@@ -37,6 +37,16 @@ class RulesTest {
     }
 
     @Test
+    fun `demand factor follows net buys per portfolio within the cap`() {
+        assertEquals(1.0, Pricing.demandFactor(0, 10))
+        assertEquals(1.0, Pricing.demandFactor(5, 0))
+        assertEquals(1.25, Pricing.demandFactor(5, 10), 1e-12)
+        assertEquals(0.875, Pricing.demandFactor(-1, 4), 1e-12)
+        assertEquals(1.3, Pricing.demandFactor(100, 4), 1e-12)
+        assertEquals(0.7, Pricing.demandFactor(-100, 4), 1e-12)
+    }
+
+    @Test
     fun `announcement bump steps by opponent strength`() {
         assertEquals(0.02, Pricing.announcementBump(BoutType.NORMAL, -50.0), 1e-12)
         assertEquals(0.03, Pricing.announcementBump(BoutType.NORMAL, 50.0), 1e-12)

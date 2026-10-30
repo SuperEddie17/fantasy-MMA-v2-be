@@ -34,6 +34,8 @@ data class RuleSet(
     val decay: Double = 0.01,
     val delistWeeks: Double = 78.0,
     val demandCap: Double = 0.30,
+    /** Demand factor change per net buy per active portfolio over the last 7 days. */
+    val demandSensitivity: Double = 0.5,
     // Dividends
     val baseDec: Double = 1.0,
     val baseFin: Double = 1.5,

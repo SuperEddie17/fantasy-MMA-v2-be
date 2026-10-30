@@ -158,6 +158,32 @@ class MarketService {
     }
 
     /**
+     * Sets the demand factor (stored with 6 decimals) and logs a `DEMAND` price event; nothing happens when the
+     * stored factor is already that. Returns whether the listing changed.
+     */
+    fun setDemand(
+        conn: Connection,
+        fighterId: Long,
+        factor: Double,
+        cause: PriceCause,
+        rules: RuleSet = RuleSet.V2,
+    ): Boolean {
+        val current = listing(conn, fighterId)?.takeIf { it.status != "DELISTED" } ?: return false
+        val target = round6(factor)
+        if (target == round6(current.demandFactor)) return false
+        val price = Pricing.price(current.baseValue, current.eventMultiplier, target, rules)
+        conn.prepareStatement("UPDATE market_listing SET demand_factor = ?, price = ? WHERE fighter_id = ?").use { ps ->
+            ps.setDouble(1, target)
+            ps.setLong(2, price.units)
+            ps.setLong(3, fighterId)
+            ps.executeUpdate()
+        }
+        val factor = price.toDouble() / current.price.toDouble()
+        logEvent(conn, fighterId, cause.copy(kind = PriceEventKind.DEMAND), factor, current.price, price)
+        return true
+    }
+
+    /**
      * Brings the announcement bumps of a bout in line with its current fighters, type and the Elo of both sides:
      * a new bout adds `bump(type) + stronger-opponent bump` to each fighter's multiplier, a changed one only the
      * difference, and a fighter who left the bout gets their bump back. Each part is logged as its own price event.
