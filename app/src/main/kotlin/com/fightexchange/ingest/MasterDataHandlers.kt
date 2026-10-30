@@ -1,14 +1,19 @@
 package com.fightexchange.ingest
 
+import com.fightexchange.market.MarketService
+import com.fightexchange.market.PriceCause
+import com.fightexchange.market.PriceEventKind
 import jakarta.inject.Singleton
 import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.Timestamp
+import java.time.Instant
 
 @Singleton
 class FighterUpsertHandler(
     private val support: IngestSupport,
     private val matcher: FighterMatcher,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.FIGHTER_UPSERT
 
@@ -24,6 +29,7 @@ class FighterUpsertHandler(
             is FighterMatch.Matched -> {
                 update(conn, match.fighterId, payload)
                 linkExternalId(conn, match.fighterId, event.source, payload.externalId)
+                list(conn, match.fighterId, event)
                 HandlerOutcome.APPLIED
             }
             is FighterMatch.Uncertain -> {
@@ -33,9 +39,19 @@ class FighterUpsertHandler(
             FighterMatch.NotFound -> {
                 val id = insert(conn, orgId, payload)
                 linkExternalId(conn, id, event.source, payload.externalId)
+                list(conn, id, event)
                 HandlerOutcome.APPLIED
             }
         }
+    }
+
+    /** IPO for a fighter without a listing (a no-op for already listed ones). */
+    private fun list(
+        conn: Connection,
+        fighterId: Long,
+        event: StoredIngestEvent,
+    ) {
+        market.ensureListed(conn, fighterId, PriceCause(PriceEventKind.ELO, Instant.now(), ingestEventId = event.id))
     }
 
     private fun insert(
