@@ -51,7 +51,10 @@ class FighterMatcherTest : PostgresTest() {
         tx.executeWrite { st ->
             val c = st.connection
             c.createStatement().use {
-                it.execute("DELETE FROM fighter_external_id; DELETE FROM fighter")
+                it.execute(
+                    "DELETE FROM price_event; DELETE FROM price_daily; DELETE FROM market_listing; " +
+                        "DELETE FROM fighter_external_id; DELETE FROM fighter",
+                )
             }
             ufc = c.orgId("UFC")
             pfl = c.orgId("PFL")
