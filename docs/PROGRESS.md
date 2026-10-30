@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F2 – Trh a ceny
-- **Stav fáze:** rozpracováno (F2.1–F2.2 hotovo; F0 a F1 v `main`, PR #2 a #12)
+- **Stav fáze:** rozpracováno (F2.1–F2.3 hotovo; F0 a F1 v `main`, PR #2 a #12)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -70,7 +70,7 @@ a endpoint historie vrací graf s vysvětlením každého pohybu.
 
 - [x] F2.1 Flyway `V006__market.sql`: `market_listing`, `price_event`, `price_daily`, `MarketSchemaTest`
 - [x] F2.2 `MarketService` jádro: IPO (`fighter.upsert` → listing), cena ze základní hodnoty × multiplikátor × poptávka, zápis `price_event` (`MarketServiceTest`)
-- [ ] F2.3 Reakce na `bout.announced` / `bout.changed` / `bout.cancelled` (bonusy, bonus za silnějšího soupeře, pokles při zrušení)
+- [x] F2.3 Reakce na `bout.announced` / `bout.changed` / `bout.cancelled` (bonusy, bonus za silnějšího soupeře, pokles při zrušení): `MarketService.syncBout`/`cancelBout`, Flyway `V007__bout_price_bump.sql`, `MarketBoutReactionsTest`
 - [ ] F2.4 Reakce na `odds.snapshot` (drift v týdnu zápasu), `ranking.snapshot` a `bout.result` (nové Elo, multiplikátor = 1)
 - [ ] F2.5 `InactivityJob`, `PriceDailyJob` (`@Scheduled` + ShedLock v Postgresu, idempotentní)
 - [ ] F2.6 Čtecí endpointy `/api/v1/market`, `/{id}`, `/{id}/history`, `/{id}/events`
@@ -89,6 +89,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F2 | Přihláška zápasu: `MarketService.syncBout(boutId)` srovná bump zápasníků se stavem zápasu (typ, soupeř, Elo obou stran v okamžiku události); aplikovaný bump drží tabulka `bout_price_bump` (`V007`, `base_bump` z typu, `opp_bump` za silnějšího soupeře), takže změna zápasu posune jen rozdíl a zrušení vrátí přesně to, co zápas přidal. Každá část je vlastní `price_event` (`ANNOUNCED` / `OPPONENT_BONUS`, u vrácení s poznámkou). `cancelBout`: oba ztratí bump, ten kdo vypadl navíc klesne o `cancelDropMax` při zranění (důvod obsahuje „injur“), jinak o `cancelDropMin`; bez uvedeného zápasníka se nic neubírá. Opakované zrušení nic nemění. Multiplikátor je v DB `NUMERIC(12,6)`, vrácení bumpu proto může mít odchylku řádu 1e-6 | plán říká „−5 až −10 %“ bez pravidla výběru; bump je třeba umět přesně odečíst |
 | 2026-10-30 | F2 | `MarketService` (JDBC na transakčním spojení handleru): `ensureListed` = IPO z aktuálního Elo (debutant `eloStart` → 6 M), loguje `price_event` `ELO` s poznámkou „IPO“ (před = po); `apply(cause, multiplierFactor | resetMultiplier, baseValue)` přepočte `Pricing.price`, přepne `IPO` → `ACTIVE`, zapíše `price_event` s faktorem = nová/stará cena; staženého zápasníka nemění. `fighter.upsert` zakládá listing i u již existujícího zápasníka bez něj. Import historie (`HistoryImporter`) zápasníky zatím nelistuje — dořeší replay v F2.7/F2.8 | jedna cesta pro všechny změny ceny, každá s důvodem |
 | 2026-10-30 | F2 | Rozpis F2 na úkoly F2.1–F2.8 (schéma → jádro → reakce na události → úlohy → endpointy → admin → přehrání 2025). `V006`: `price_event.at` je čas události (ne zápisu, ten je `created_at`), `event_multiplier`/`demand_factor` jsou `NUMERIC(12,6)`, `market_listing` hlídá `DELISTED` ⇔ `delisted_at` a `price_daily` `low ≤ open,close ≤ high` | plán tabulky popisuje jen přibližně; invarianty hlídá DB |
 | 2026-10-30 | F1 | Import historie: CSV ve sloupcích `ufc-master.csv` (povinné `date`, `R_fighter`, `B_fighter`, `Winner`, `finish`; volitelné kurzy v americkém formátu, `finish_round`, `title_bout`, `no_of_rounds`, `gender`, `weight_class`). Zdroj `HISTORY`: event na den (`HIST-<ORG>-<datum>`), zápas `HIST-<ORG>-<datum>-<pořadí>`, zápasník = normalizované jméno; opakovaný import přeskočí existující zápasy. Zápasy se řadí podle data (stabilně), Elo se počítá novým `EloService.recalculateBouts` (množina nových zápasů se hodnotí vždy, ne jen ta, co se dotýkají „špinavých“ zápasníků). Bez `Winner` je výsledek no contest (jako `sim.py`), remíza jen když `finish` obsahuje „draw“; neznámá metoda s vítězem = `DEC_U`. Chybné řádky se přeskočí a hlásí (max. 20). Zápasníci se párují podle normalizovaného jména, takže 8 variant pravopisu v datech (`Da-Un Jung` / `Da Un Jung`) je jeden zápasník, kdežto `sim.py` je bere jako dva; test proto porovnává Elo podle normalizovaného jména. Dotaz na Elo před zápasem čte jen `elo_rating` (index podle zápasníka), původní join s `event` byl při hromadném importu pomalý | plán: import historie dá stejné Elo jako simulace; jedna pravda pro zápasníky napříč zdroji |
@@ -131,9 +132,9 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1 je hotová a v `main`. F2 běží: F2.1–F2.2 jsou hotové, další je **F2.3** – reakce `MarketService` na
-`bout.announced` / `bout.changed` / `bout.cancelled` (bonusy, bonus za silnějšího soupeře, pokles při zrušení). Každý úkol = vlastní větev a PR
-(`f2/f2.2-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+F1 je hotová a v `main`. F2 běží: F2.1–F2.3 jsou hotové, další je **F2.4** – reakce `MarketService` na
+`odds.snapshot` (drift v týdnu zápasu), `ranking.snapshot` a `bout.result` (nové Elo, multiplikátor = 1). Každý úkol = vlastní větev a PR
+(`f2/f2.4-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
 Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
