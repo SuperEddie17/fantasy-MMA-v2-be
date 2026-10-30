@@ -25,7 +25,9 @@ class TradingSchemaTest : PostgresTest() {
     @AfterEach
     fun clean() {
         exec(
-            "DELETE FROM weekly_buy_counter; DELETE FROM ledger_entry; DELETE FROM position_lot; DELETE FROM trade; " +
+            "DELETE FROM leaderboard_entry; DELETE FROM net_worth_snapshot; DELETE FROM dividend_payout; " +
+                "DELETE FROM captain_pick; DELETE FROM weekly_buy_counter; DELETE FROM ledger_entry; " +
+                "DELETE FROM position_lot; DELETE FROM trade; " +
                 "DELETE FROM portfolio; DELETE FROM season; DELETE FROM app_user; DELETE FROM fighter",
         )
     }
