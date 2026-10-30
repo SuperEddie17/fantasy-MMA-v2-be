@@ -349,6 +349,27 @@ class MarketService {
         }
     }
 
+    /**
+     * Manual or inactivity delisting: the fighter leaves the market at the current price. Logged as a `DELIST`
+     * price event. Returns false when the fighter is not listed or already delisted.
+     */
+    fun delist(
+        conn: Connection,
+        fighterId: Long,
+        cause: PriceCause,
+    ): Boolean {
+        val current = listing(conn, fighterId)?.takeIf { it.status != "DELISTED" } ?: return false
+        conn
+            .prepareStatement("UPDATE market_listing SET status = 'DELISTED', delisted_at = ? WHERE fighter_id = ?")
+            .use { ps ->
+                ps.setTimestamp(1, Timestamp.from(cause.at))
+                ps.setLong(2, fighterId)
+                ps.executeUpdate()
+            }
+        logEvent(conn, fighterId, cause.copy(kind = PriceEventKind.DELIST), null, current.price, current.price)
+        return true
+    }
+
     /** Moves the base value to the current Elo (and the multiplier to [multiplier]); logs only a real change. */
     private fun refresh(
         conn: Connection,

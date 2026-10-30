@@ -8,13 +8,14 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F2 – Trh a ceny
-- **Stav fáze:** rozpracováno (F2.1–F2.4 hotovo; F0 a F1 v `main`, PR #2 a #12)
+- **Stav fáze:** rozpracováno (F2.1–F2.5 hotovo; F0 a F1 v `main`, PR #2 a #12)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
 
 | Fáze | Obsah | Stav | PR |
 | --- | --- | --- | --- |
+| 2026-10-30 | F2 | Úlohy: místo ShedLocku se zámek bere `pg_try_advisory_xact_lock` v transakci úlohy (bez nové závislosti; zámek zmizí s transakcí, jiná instance běh přeskočí). Neaktivita: referenční čas = `last_fight_at`, jinak `listed_at` (zápasník, který nikdy nebojoval, taky stárne); za každý celý týden nad `inactiveWeeks` jedno −1 % (`weeks = dny/7` jako `sim.py`), počet už strhnutých týdnů drží `market_listing.inactivity_ticks` (`V009`), takže opakovaný běh nic nemění a vynechané noci se doženou jednou `price_event` `INACTIVITY` s faktorem `0,99^n`; s ohlášeným zápasem (`bout.status` `ANNOUNCED`/`CONFIRMED`) se nestrhává a zameškané týdny se neúčtují zpětně; po `delistWeeks` bez ohlášeného zápasu `delist` (`DELIST`, cena zůstane). Po zápase `settleBout` vrací multiplikátor na bumpy, takže neaktivita se tím smaže. `PriceDailyJob` v 00:05 UTC dožene všechny dny po posledním uzavřeném do včerejška; open = cena na konci předchozího dne (jinak `price_before` první události), dny bez události nesou poslední cenu; přepis dne je `ON CONFLICT DO UPDATE`, aby replay (F2.7) opravil historii | plán: „idempotentní, znovuspuštění za stejný den nic nezmění“; `sim.py` neaktivitu počítá týdně |
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
 | F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
 | F2 | Trh a ceny | 🟡 rozpracováno | – |
@@ -72,7 +73,7 @@ a endpoint historie vrací graf s vysvětlením každého pohybu.
 - [x] F2.2 `MarketService` jádro: IPO (`fighter.upsert` → listing), cena ze základní hodnoty × multiplikátor × poptávka, zápis `price_event` (`MarketServiceTest`)
 - [x] F2.3 Reakce na `bout.announced` / `bout.changed` / `bout.cancelled` (bonusy, bonus za silnějšího soupeře, pokles při zrušení): `MarketService.syncBout`/`cancelBout`, Flyway `V007__bout_price_bump.sql`, `MarketBoutReactionsTest`
 - [x] F2.4 Reakce na `odds.snapshot` (drift v týdnu zápasu), `ranking.snapshot` a `bout.result` (nové Elo, multiplikátor = 1): `MarketService.driftBout`/`applyRanking`/`settleBout`, `Pricing.rankingFactor`, Flyway `V008__market_reactions.sql`, `MarketResultReactionsTest`
-- [ ] F2.5 `InactivityJob`, `PriceDailyJob` (`@Scheduled` + ShedLock v Postgresu, idempotentní)
+- [x] F2.5 `InactivityJob`, `PriceDailyJob` (`MarketJobs` `@Scheduled` + advisory lock v Postgresu, idempotentní): `MarketMaintenance.applyInactivity`/`closeDay`, `MarketService.delist`, Flyway `V009__inactivity_ticks.sql`, `MarketJobsTest`
 - [ ] F2.6 Čtecí endpointy `/api/v1/market`, `/{id}`, `/{id}/history`, `/{id}/events`
 - [ ] F2.7 Admin: `POST /admin/market/{id}/delist`, `POST /admin/market/replay`
 - [ ] F2.8 Přehrání roku 2025 přes ingest = ceny simulace (±1 %)
@@ -133,9 +134,9 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1 je hotová a v `main`. F2 běží: F2.1–F2.4 jsou hotové, další je **F2.5** – `InactivityJob` a `PriceDailyJob`
-(`@Scheduled` + ShedLock v Postgresu, idempotentní; `market_listing.last_fight_at` už plní `settleBout`). Každý úkol = vlastní větev a PR
-(`f2/f2.5-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+F1 je hotová a v `main`. F2 běží: F2.1–F2.5 jsou hotové, další je **F2.6** – čtecí endpointy `/api/v1/market`, `/{id}`,
+`/{id}/history`, `/{id}/events` (data: `market_listing`, `price_event`, `price_daily`). Každý úkol = vlastní větev a PR
+(`f2/f2.6-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
 Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
