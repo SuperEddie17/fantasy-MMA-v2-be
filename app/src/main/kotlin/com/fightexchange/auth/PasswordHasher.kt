@@ -21,13 +21,17 @@ class PasswordHasher {
         password: String,
         stored: String?,
     ): Boolean {
-        val parts = stored?.split('$') ?: return false
-        if (parts.size != PARTS || parts[0] != "pbkdf2") return false
-        val iterations = parts[1].toIntOrNull() ?: return false
-        val expected = runCatching { Base64.getDecoder().decode(parts[3]) }.getOrNull() ?: return false
-        val salt = runCatching { Base64.getDecoder().decode(parts[2]) }.getOrNull() ?: return false
-        return MessageDigest.isEqual(derive(password, salt, iterations), expected)
+        val parts = stored?.split('$')?.takeIf { it.size == PARTS && it[0] == "pbkdf2" } ?: return false
+        val iterations = parts[1].toIntOrNull()
+        val salt = decode(parts[2])
+        val expected = decode(parts[3])
+        return iterations != null &&
+            salt != null &&
+            expected != null &&
+            MessageDigest.isEqual(derive(password, salt, iterations), expected)
     }
+
+    private fun decode(text: String): ByteArray? = runCatching { Base64.getDecoder().decode(text) }.getOrNull()
 
     private fun derive(
         password: String,
