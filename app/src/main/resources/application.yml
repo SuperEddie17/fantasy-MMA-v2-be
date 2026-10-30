@@ -24,3 +24,10 @@ endpoints:
     enabled: true
     sensitive: false
     details-visible: ANONYMOUS
+
+ingest:
+  confirmation:
+    # Event types from non-admin sources that wait for an admin decision (source ADMIN is trusted).
+    required-types:
+      - bout.result
+      - bout.cancelled

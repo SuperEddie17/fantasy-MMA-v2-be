@@ -4,14 +4,12 @@ import com.fightexchange.PostgresTest
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest
 import io.micronaut.transaction.TransactionOperations
 import jakarta.inject.Inject
-import jakarta.inject.Singleton
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.sql.Connection
 
 /** Test handler: records handled event ids, fails for a poisoned external id. */
-@Singleton
 class RecordingHandler : IngestHandler {
     val handled = mutableListOf<Long>()
     override val type = IngestEventType.FIGHTER_UPSERT
@@ -35,14 +33,17 @@ class RecordingHandler : IngestHandler {
 class IngestCoreTest : PostgresTest() {
     @Inject lateinit var service: IngestService
 
-    @Inject lateinit var processor: IngestProcessor
-
-    @Inject lateinit var handler: RecordingHandler
-
     @Inject lateinit var tx: TransactionOperations<Connection>
+
+    // Built by hand so the real handlers of the application do not interfere with the recording one.
+    private val handler = RecordingHandler()
+    private lateinit var processor: IngestProcessor
+    private lateinit var emptyProcessor: IngestProcessor
 
     @BeforeEach
     fun clean() {
+        processor = IngestProcessor(tx, service, listOf(handler))
+        emptyProcessor = IngestProcessor(tx, service, emptyList())
         handler.handled.clear()
         tx.executeWrite { it.connection.createStatement().execute("DELETE FROM review_item; DELETE FROM ingest_event") }
     }
@@ -101,7 +102,7 @@ class IngestCoreTest : PostgresTest() {
             "r",
             IngestPayload.OddsSnapshot("b", java.time.Instant.parse("2026-01-01T00:00:00Z"), 1.5, 2.5),
         )
-        assertEquals(0, processor.processPending())
+        assertEquals(0, emptyProcessor.processPending())
         assertEquals(1, count("SELECT count(*) FROM ingest_event WHERE status = 'NEW'"))
     }
 
