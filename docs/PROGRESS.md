@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.5 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.6 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -57,7 +57,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.3 `FighterMatcher` (external id → normalizované jméno + divize; nejistá shoda vrací `Uncertain`, `review_item` zakládá handler v F1.4), `FighterMatcherTest`
 - [x] F1.4 Handlery všech 8 typů událostí (`MasterDataHandlers`, `BoutHandlers`), `ConfirmationPolicy` (`ingest.confirmation.required-types`), Flyway `V004__bout_external_id.sql`, `IngestHandlersTest`
 - [x] F1.5 Elo po `bout.result` (`EloService.recalculateFrom`), oprava výsledku = nová verze + přepočet od zápasu dál, `EloRecalculationTest`
-- [ ] F1.6 Veřejné čtecí endpointy (organizace, zápasníci, eventy)
+- [x] F1.6 Veřejné čtecí endpointy: `/api/v1/organizations`, `/fighters`, `/fighters/{id}`, `/events`, `/events/{id}` (`SportController`, `SportQueries`), `SportApiTest`
 - [ ] F1.7 Admin API + statický admin účet (Micronaut Security basic → JWT) + fronta ke kontrole
 - [ ] F1.8 Hromadné zadání výsledků karty, ruční kurzy
 - [ ] F1.9 Import historie (`:app:importHistory`, `POST /admin/import/history`), shoda Elo se simulací UFC
@@ -74,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F1 | Čtecí endpointy stránkují kurzorem = `id` poslední položky (`?after=&limit=`, výchozí 50, max 200, odpověď `{items, nextCursor}`); seznamy vynechávají sloučené zápasníky, karta eventu je ukazuje; výsledek v detailu zápasníka je z jeho pohledu (`WIN`/`LOSS`/`DRAW`/`NO_CONTEST`), zrušené zápasy se v historii nezobrazují; hledání `q` používá `NameNormalizer` (bez diakritiky) | plán: kurzorové stránkování; vyhledávání musí najít „Prochazka“ i „Procházka“ |
 | 2026-10-30 | proces | Jeden úkol plánu = jeden PR (větev `f<fáze>/<úkol>-<slug>`, titulek `[F1.6] …`), PR se otevírá hned po úkolu; navazující úkol se stackuje na nemergovaný PR (base = jeho větev). F1.1–F1.5 vznikly na jedné větvi, proto jdou jako jeden PR. Nahrazuje „PR za ucelenou skupinu úkolů“ | výslovný pokyn uživatele, zapsáno do `CLAUDE.md` |
 | 2026-10-30 | F1 | `EloService.recalculateFrom(boutId)` přepočítá zápas a všechny pozdější zápasy, kterých se dotkne změna (zasažení zápasníci se šíří přes soupeře); pořadí = (`event.starts_at`, `bout.id`), `rated_at` = začátek eventu; „konec“ = `KO_TKO`/`SUB`; remíza skóre 0,5; no contest řádek `elo_rating` nezapisuje (a případný starý smaže). Volá se z `BoutResultHandler.apply` ve stejné transakci | opravený výsledek mění Elo i následných soupeřů; shoda se `sim.py` (finish jen KO/SUB) |
 | 2026-10-30 | F1 | Zápas se adresuje dvojicí (`source`, `external_id`) (V004: `bout.source`, `bout.external_id`, `bout.withdrawn_fighter_id`); eventy z `ADMIN` se nepotvrzují, ostatní zdroje čekají u typů v `ingest.confirmation.required-types` (výchozí `bout.result`, `bout.cancelled`) → `review_item` `RESULT_CONFIRM`/`CANCELLATION`. `BoutResultHandler.apply`/`BoutCancelledHandler.apply` jsou veřejné pro potvrzení v F1.7 | plán nemá sloupec pro externí id zápasu; admin je sám potvrzovatel |
@@ -106,8 +107,8 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.6: veřejné čtecí endpointy (`/api/v1/organizations`, `/fighters`, `/fighters/{id}` s Elo a posledními zápasy,
-`/events`, `/events/{id}`). Pak F1.7 admin API a fronta ke kontrole.
+F1.7: admin API + statický admin účet (Micronaut Security basic → JWT) + fronta ke kontrole
+(`/api/v1/admin/**`, `GET /admin/review`, `POST /admin/review/{id}/resolve`). Každý úkol = vlastní větev a PR.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
