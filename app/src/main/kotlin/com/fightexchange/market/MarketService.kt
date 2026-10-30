@@ -4,6 +4,7 @@ import com.fightexchange.rules.BoutType
 import com.fightexchange.rules.Money
 import com.fightexchange.rules.Pricing
 import com.fightexchange.rules.RuleSet
+import com.fightexchange.trading.DelistPayout
 import jakarta.inject.Singleton
 import java.sql.Connection
 import java.sql.Timestamp
@@ -51,7 +52,9 @@ data class Listing(
  * and logs every change with its reason in `price_event`. All methods run on the caller's transaction connection.
  */
 @Singleton
-class MarketService {
+class MarketService(
+    private val delistPayout: DelistPayout,
+) {
     /** Latest Elo of the fighter (as of [asOf] when given), or [RuleSet.eloStart] for a debutant. */
     fun currentElo(
         conn: Connection,
@@ -396,7 +399,8 @@ class MarketService {
 
     /**
      * Manual or inactivity delisting: the fighter leaves the market at the current price. Logged as a `DELIST`
-     * price event. Returns false when the fighter is not listed or already delisted.
+     * price event; all open positions in the fighter are paid out at that price ([DelistPayout]).
+     * Returns false when the fighter is not listed or already delisted.
      */
     fun delist(
         conn: Connection,
@@ -412,6 +416,8 @@ class MarketService {
                 ps.executeUpdate()
             }
         logEvent(conn, fighterId, cause.copy(kind = PriceEventKind.DELIST), null, current.price, current.price)
+        // A replay only catches the listings up; real delistings settle the players' positions.
+        if (cause.record) delistPayout.payOut(conn, fighterId, current.price, cause.at)
         return true
     }
 
