@@ -10,6 +10,7 @@ import io.micronaut.http.annotation.PathVariable
 import io.micronaut.http.annotation.Post
 import io.micronaut.http.annotation.QueryValue
 import io.micronaut.security.authentication.Authentication
+import java.time.Instant
 
 private val OUTCOMES = setOf("WIN", "DRAW", "NO_CONTEST")
 private const val DEFAULT_LIMIT = 50
@@ -131,22 +132,43 @@ class AdminController(
     ): HttpResponse<*> {
         val bout = lookups.bout(id) ?: return HttpResponse.notFound<Any>()
         validateResult(request)?.let { return bad(it) }
-        val fighters = listOfNotNull(request.winner) + request.bonuses.map { it.fighter } + request.weightMisses
-        fighters.firstOrNull { !lookups.fighterExists(it) }?.let { return bad("Fighter $it does not exist") }
+        return respond(ingest.run(resultPayload(bout, request)), created = false) { id }
+    }
+
+    @Post("/bouts/{id}/odds")
+    fun addOdds(
+        @PathVariable id: Long,
+        @Body request: AddOddsRequest,
+    ): HttpResponse<*> {
+        val bout = lookups.bout(id) ?: return HttpResponse.notFound<Any>()
+        if (request.oddsA <= 1.0 || request.oddsB <= 1.0) return bad("Decimal odds must be greater than 1")
         val payload =
-            IngestPayload.BoutResult(
+            IngestPayload.OddsSnapshot(
                 boutExternalId = bout.externalId,
+                takenAt = request.takenAt ?: Instant.now(),
+                oddsA = request.oddsA,
+                oddsB = request.oddsB,
+                closing = request.closing,
                 boutSource = bout.source,
-                outcome = request.outcome,
-                winner = request.winner?.let { byId(it) },
-                method = request.method,
-                round = request.round,
-                time = request.time,
-                titleWon = request.titleWon,
-                bonuses = request.bonuses.map { IngestPayload.Bonus(byId(it.fighter), it.type) },
-                weightMisses = request.weightMisses.map { byId(it) },
             )
-        return respond(ingest.run(payload), created = false) { id }
+        return respond(ingest.run(payload)) { id }
+    }
+
+    /** Whole card at once: everything is validated first, then the results are entered one by one. */
+    @Post("/events/{id}/results")
+    fun setCardResults(
+        @PathVariable id: Long,
+        @Body request: CardResultsRequest,
+    ): HttpResponse<*> {
+        lookups.event(id) ?: return HttpResponse.notFound<Any>()
+        val bouts = mutableMapOf<Long, SourceRef>()
+        validateCard(id, request, bouts)?.let { return bad(it) }
+        val items =
+            request.results.map { item ->
+                val outcome = ingest.run(resultPayload(bouts.getValue(item.bout), item.result))
+                CardResultItemDto(item.bout, outcome.status, outcome.ingestEventId, outcome.reviewItemId)
+            }
+        return HttpResponse.ok(CardResultsDto(items))
     }
 
     @Get("/review{?status,after,limit}")
@@ -178,6 +200,39 @@ class AdminController(
                     ).body(ErrorDto(result.message))
         }
 
+    /** Fills [bouts] with the card's bouts by id; returns the first problem found, if any. */
+    private fun validateCard(
+        eventId: Long,
+        request: CardResultsRequest,
+        bouts: MutableMap<Long, SourceRef>,
+    ): String? {
+        val ids = request.results.map { it.bout }
+        if (ids.isEmpty() || ids.toSet().size != ids.size) return "results must list each bout once and not be empty"
+        for (item in request.results) {
+            val bout = lookups.boutOfEvent(item.bout, eventId) ?: return "Bout ${item.bout} is not on event $eventId"
+            validateResult(item.result)?.let { return "Bout ${item.bout}: $it" }
+            bouts[item.bout] = bout
+        }
+        return null
+    }
+
+    private fun resultPayload(
+        bout: SourceRef,
+        request: SetResultRequest,
+    ): IngestPayload.BoutResult =
+        IngestPayload.BoutResult(
+            boutExternalId = bout.externalId,
+            boutSource = bout.source,
+            outcome = request.outcome,
+            winner = request.winner?.let { byId(it) },
+            method = request.method,
+            round = request.round,
+            time = request.time,
+            titleWon = request.titleWon,
+            bonuses = request.bonuses.map { IngestPayload.Bonus(byId(it.fighter), it.type) },
+            weightMisses = request.weightMisses.map { byId(it) },
+        )
+
     private fun byId(id: Long) = IngestPayload.FighterRef(id = id)
 
     private fun bad(message: String): HttpResponse<*> = HttpResponse.badRequest(ErrorDto(message))
@@ -194,7 +249,10 @@ class AdminController(
             r.outcome !in OUTCOMES -> "outcome must be one of $OUTCOMES"
             r.outcome == "WIN" && r.winner == null -> "A WIN needs a winner"
             r.outcome != "WIN" && r.winner != null -> "Only a WIN has a winner"
-            else -> null
+            else ->
+                (listOfNotNull(r.winner) + r.bonuses.map { it.fighter } + r.weightMisses)
+                    .firstOrNull { !lookups.fighterExists(it) }
+                    ?.let { "Fighter $it does not exist" }
         }
 
     /** 201 with the created id, 202 when the change waits in the review queue, 422 when it was rejected. */

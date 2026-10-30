@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.7 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.8 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -59,7 +59,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.5 Elo po `bout.result` (`EloService.recalculateFrom`), oprava výsledku = nová verze + přepočet od zápasu dál, `EloRecalculationTest`
 - [x] F1.6 Veřejné čtecí endpointy: `/api/v1/organizations`, `/fighters`, `/fighters/{id}`, `/events`, `/events/{id}` (`SportController`, `SportQueries`), `SportApiTest`
 - [x] F1.7 Admin API + statický admin účet (`POST /login` → JWT, `ROLE_ADMIN`) + fronta ke kontrole (`AdminController`, `ReviewService`, `FighterMerge`, Flyway `V005`), `AdminApiTest`
-- [ ] F1.8 Hromadné zadání výsledků karty, ruční kurzy
+- [x] F1.8 Hromadné zadání výsledků karty (`POST /admin/events/{id}/results`), ruční kurzy (`POST /admin/bouts/{id}/odds`), `AdminApiTest`
 - [ ] F1.9 Import historie (`:app:importHistory`, `POST /admin/import/history`), shoda Elo se simulací UFC
 
 ## F2–F6
@@ -74,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F1 | Hromadné zadání karty: nejdřív se zvaliduje celé tělo (zápasy musí patřit k eventu, každý max. jednou, vítěz/bonusy existují) a při chybě se nezapíše nic (400); pak se výsledky zadávají po jednom přes ingest a odpověď (200) vrací stav každého zápasu (`APPLIED`/`NEEDS_REVIEW`/`REJECTED`). Ruční kurz: desetinný kurz > 1 u obou stran, `closing` označí závěrečný kurz, `takenAt` výchozí teď | chyba v jednom zápase nesmí nechat kartu napůl zadanou kvůli překlepu; neplatné kombinace se chytí předem |
 | 2026-10-30 | F1 | Admin API: admin formuláře jdou přes `IngestService` se `source = ADMIN` a zpracují se synchronně (201 vytvořeno / 200 změněno / 202 čeká ve frontě ke kontrole / 422 zamítnuto). Zápasníky v těle žádostí adresuje naše `id` (`FighterRef.id`), cizí zápasy a eventy se adresují přidaným `boutSource`/`eventSource` v payloadu (nepovinná pole na konci). `PATCH /bouts/{id}` umí i `announcedAt` (zapíše `announced_at_admin`) | admin edituje i zápasy ze zdrojů UFC/PFL, ne jen vlastní |
 | 2026-10-30 | F1 | Přihlášení: `POST /login` (JSON `username`/`password`) vrací JWT; účet z `ADMIN_USER`/`ADMIN_PASSWORD`, při prázdném hesle login nejde (bezpečné výchozí chování); `JWT_SECRET` volitelný, jinak se při startu vygeneruje náhodný. Chráněno je jen `/api/v1/admin/**`, zbytek (čtecí API, `/health`) zůstává veřejný. Plán říkal „basic → JWT“, basic jsem vynechal | jeden mechanismus místo dvou; plné účty přijdou ve F3 |
 | 2026-10-30 | F1 | `V005`: `fighter_external_id` už nemá PK (`fighter_id`, `source`), zůstává `UNIQUE (source, external_id)`; zápasník může mít u zdroje víc id | admin přiřazuje druhé id existujícímu zápasníkovi a sloučení spojuje id duplicit |
@@ -112,8 +113,9 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.8: hromadné zadání výsledků karty (`POST /api/v1/admin/events/{id}/results`) a ruční kurzy
-(`POST /api/v1/admin/bouts/{id}/odds`); využij `AdminIngest` a `boutSource` z F1.7. Každý úkol = vlastní větev a PR.
+F1.9: import historie (`:app:importHistory`, `POST /api/v1/admin/import/history`) z CSV, kontrola shody Elo
+se simulací UFC (zdroj: `rules/src/test/resources/golden/fights.json`). Využij `EloService.recalculateFrom`
+a ingest. Každý úkol = vlastní větev a PR.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.

@@ -66,6 +66,39 @@ data class SetResultRequest(
     val weightMisses: List<Long> = emptyList(),
 )
 
+@Serdeable
+data class AddOddsRequest(
+    val oddsA: Double,
+    val oddsB: Double,
+    val closing: Boolean = false,
+    val takenAt: Instant? = null,
+)
+
+/** One bout of a card; the result fields mirror [SetResultRequest]. */
+@Serdeable
+data class CardResultEntry(
+    val bout: Long,
+    val result: SetResultRequest,
+)
+
+@Serdeable
+data class CardResultsRequest(
+    val results: List<CardResultEntry>,
+)
+
+@Serdeable
+data class CardResultItemDto(
+    val bout: Long,
+    val status: String,
+    val ingestEventId: Long,
+    val reviewItemId: Long?,
+)
+
+@Serdeable
+data class CardResultsDto(
+    val items: List<CardResultItemDto>,
+)
+
 /** `action` is CONFIRM, REJECT or ASSIGN (ASSIGN links [externalId] of the event's source to [fighterId]). */
 @Serdeable
 data class ResolveReviewRequest(
