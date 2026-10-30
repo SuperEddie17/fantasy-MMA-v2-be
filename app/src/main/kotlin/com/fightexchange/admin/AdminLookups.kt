@@ -20,6 +20,23 @@ class AdminLookups(
 
     fun bout(id: Long): SourceRef? = ref("SELECT id, source, external_id FROM bout WHERE id = ?", id)
 
+    /** The bout, only if it belongs to [eventId]. */
+    fun boutOfEvent(
+        id: Long,
+        eventId: Long,
+    ): SourceRef? =
+        tx.executeRead { status ->
+            status.connection
+                .prepareStatement("SELECT id, source, external_id FROM bout WHERE id = ? AND event_id = ?")
+                .use { ps ->
+                    ps.setLong(1, id)
+                    ps.setLong(2, eventId)
+                    ps.executeQuery().use { rs ->
+                        if (rs.next()) SourceRef(rs.getLong(1), rs.getString(2), rs.getString(3)) else null
+                    }
+                }
+        }
+
     fun fighterExists(id: Long): Boolean = exists("SELECT 1 FROM fighter WHERE id = ? AND merged_into_id IS NULL", id)
 
     /** Id of the row an admin event created, found through the generated external key. */

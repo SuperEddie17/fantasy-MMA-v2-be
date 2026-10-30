@@ -47,7 +47,8 @@ class AdminApiTest :
         tx.executeWrite {
             it.connection.createStatement().use { s ->
                 s.execute(
-                    "DELETE FROM bout_bonus; DELETE FROM weight_miss; DELETE FROM bout_result; " +
+                    "DELETE FROM odds_snapshot; DELETE FROM bout_bonus; DELETE FROM weight_miss; " +
+                        "DELETE FROM bout_result; " +
                         "DELETE FROM elo_rating; DELETE FROM bout; DELETE FROM event; " +
                         "DELETE FROM fighter_external_id; DELETE FROM fighter; " +
                         "DELETE FROM review_item; DELETE FROM ingest_event",
@@ -339,5 +340,116 @@ class AdminApiTest :
                 String::class.java,
             )
         assertEquals("[]", after)
+    }
+
+    private fun bout(
+        event: Long,
+        a: Long,
+        b: Long,
+    ) = id(
+        post(
+            "/api/v1/admin/events/$event/bouts",
+            mapOf("fighterA" to a, "fighterB" to b),
+        ).body(),
+    )
+
+    @Test
+    fun `manual odds are stored and validated`() {
+        val a = fighter("Odds One")
+        val b = fighter("Odds Two")
+        val bout = bout(event(), a, b)
+        val ok =
+            post(
+                "/api/v1/admin/bouts/$bout/odds",
+                mapOf("oddsA" to 1.5, "oddsB" to 2.6, "closing" to true),
+            )
+        assertEquals(HttpStatus.CREATED, ok.status)
+        val stored =
+            tx.executeRead {
+                it.connection.createStatement().use { s ->
+                    s
+                        .executeQuery(
+                            "SELECT odds_a, odds_b, is_closing, source FROM odds_snapshot WHERE bout_id = $bout",
+                        ).use { rs ->
+                            assertTrue(rs.next())
+                            listOf(rs.getDouble(1), rs.getDouble(2), rs.getBoolean(3), rs.getString(4))
+                        }
+                }
+            }
+        assertEquals(listOf(1.5, 2.6, true, ADMIN_SOURCE), stored)
+        assertEquals(
+            HttpStatus.BAD_REQUEST,
+            status { post("/api/v1/admin/bouts/$bout/odds", mapOf("oddsA" to 1.0, "oddsB" to 2.0)) },
+        )
+        assertEquals(
+            HttpStatus.NOT_FOUND,
+            status { post("/api/v1/admin/bouts/999999/odds", mapOf("oddsA" to 1.5, "oddsB" to 2.0)) },
+        )
+    }
+
+    @Test
+    fun `a whole card of results is entered at once`() {
+        val a = fighter("Card A")
+        val b = fighter("Card B")
+        val c = fighter("Card C")
+        val d = fighter("Card D")
+        val e = event()
+        val first = bout(e, a, b)
+        val second = bout(e, c, d)
+        val win = { winner: Long -> mapOf("outcome" to "WIN", "winner" to winner, "method" to "DEC_U") }
+        val response =
+            post(
+                "/api/v1/admin/events/$e/results",
+                mapOf(
+                    "results" to
+                        listOf(
+                            mapOf("bout" to first, "result" to win(a)),
+                            mapOf("bout" to second, "result" to win(d)),
+                        ),
+                ),
+            )
+        assertEquals(HttpStatus.OK, response.status)
+        assertEquals(2, Regex("\"status\":\"APPLIED\"").findAll(response.body()!!).count(), response.body())
+        val card = client.toBlocking().retrieve("/api/v1/events/$e")
+        assertEquals(2, Regex("\"method\":\"DEC_U\"").findAll(card).count(), card)
+    }
+
+    @Test
+    fun `a card with one bad entry enters nothing`() {
+        val a = fighter("Bad A")
+        val b = fighter("Bad B")
+        val e = event()
+        val other = event()
+        val mine = bout(e, a, b)
+        val foreign = bout(other, fighter("Bad C"), fighter("Bad D"))
+        val win = mapOf("outcome" to "WIN", "winner" to a, "method" to "DEC_U")
+        val bad =
+            status {
+                post(
+                    "/api/v1/admin/events/$e/results",
+                    mapOf(
+                        "results" to
+                            listOf(mapOf("bout" to mine, "result" to win), mapOf("bout" to foreign, "result" to win)),
+                    ),
+                )
+            }
+        assertEquals(HttpStatus.BAD_REQUEST, bad)
+        assertEquals(
+            HttpStatus.BAD_REQUEST,
+            status { post("/api/v1/admin/events/$e/results", mapOf("results" to emptyList<Any>())) },
+        )
+        assertEquals(
+            HttpStatus.NOT_FOUND,
+            status {
+                post(
+                    "/api/v1/admin/events/999999/results",
+                    mapOf(
+                        "results" to listOf(mapOf("bout" to mine, "result" to win)),
+                    ),
+                )
+            },
+        )
+        val card = client.toBlocking().retrieve("/api/v1/events/$e")
+        assertTrue(!card.contains("\"method\":\"DEC_U\""), card)
     }
 }
