@@ -7,8 +7,8 @@
 
 ## Aktuální stav
 
-- **Aktuální fáze:** F2 – Trh a ceny
-- **Stav fáze:** hotovo, čeká na merge (F2.1–F2.8; F2.1–F2.6 v `main`, F2.7+F2.8 v jednom PR)
+- **Aktuální fáze:** F3 – Hráči, portfolio, obchodování
+- **Stav fáze:** rozpracováno (F2 je v `main`; F3.1 schéma v review, další úkoly stackované na něm)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -17,8 +17,8 @@
 | --- | --- | --- | --- |
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
 | F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
-| F2 | Trh a ceny | 🔵 v review (F2.7+F2.8) | #14–#18, F2.7+F2.8 |
-| F3 | Hráči, portfolio, obchodování | ⚪ nezačato | – |
+| F2 | Trh a ceny | ✅ hotovo | #14–#19 |
+| F3 | Hráči, portfolio, obchodování | 🟡 rozpracováno | F3.1 |
 | F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
 | F5 | Automatická data | ⚪ nezačato | – |
 | F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
@@ -77,7 +77,22 @@ a endpoint historie vrací graf s vysvětlením každého pohybu.
 - [x] F2.7 Admin: `POST /admin/market/{id}/delist`, `POST /admin/market/replay` (`AdminMarketController`, `MarketAdmin`, `MarketReplay`, Flyway `V010__bout_cancelled_at.sql`), `AdminMarketApiTest`, `MarketReplayTest`
 - [x] F2.8 Přehrání roku 2025 přes ingest = ceny simulace (±1 %): `Season2025PricesTest` (import historie → replay → týdenní kroky přes ingest s ovladatelnými hodinami `MutableClock`), porovnání s portem `sim.py` z testů modulu `rules`
 
-## F3–F6
+## F3 – Hráči, portfolio, obchodování
+
+Detail viz [`plan.md`](plan.md#fáze-3--hráči-portfolio-a-obchodování-23-týdny).
+Hotovo, když: 10–20 testovacích hráčů složí portfolio přes API, noční kontrola ledgeru nehlásí rozdíl
+a obchody v uzávěrce se odmítnou.
+
+- [x] F3.1 Flyway `V011__trading.sql`: `app_user`, `season`, `portfolio`, `trade`, `position_lot`, `ledger_entry`, `weekly_buy_counter`, `TradingSchemaTest`
+- [ ] F3.2 Účty: `POST /api/v1/auth/register`, `/auth/login` (JWT, `ROLE_USER`), `GET /api/v1/me`
+- [ ] F3.3 Sezóny a portfolia: admin `POST /admin/seasons`, `POST /portfolios` (rozpočet 100 M), `GET /portfolios/{id}` (+ ocenění), `/ledger`, `/trades`
+- [ ] F3.4 `TradingService`: nákup, prodej, short (limity soupisky, uzávěrka, poplatky, přirážka, týdenní čítač, idempotence, zámek portfolia)
+- [ ] F3.5 Endpointy `POST /portfolios/{id}/quote`, `POST /portfolios/{id}/trades`, chyby jako `application/problem+json`
+- [ ] F3.6 `DemandJob` (hodinově, faktor poptávky → `price_event` `DEMAND`)
+- [ ] F3.7 Stažení z trhu: výplata všech lotů (`FORCED_SELL`, `DELIST_PAYOUT`), noční kontrola ledgeru proti `cash_cached`
+- [ ] F3.8 Souběh a přejímka: souběžné nákupy, 10–20 hráčů přes API
+
+## F4–F6
 
 Rozepíší se při startu příslušné fáze.
 
@@ -139,9 +154,8 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F2 je hotová (po merge PR s F2.7+F2.8). Další je **F3 – Hráči, portfolio, obchodování**: rozepsat úkoly F3.1… do
-tohoto souboru (podle [`plan.md`](plan.md#fáze-3--hráči-portfolio-a-obchodování-23-týdny)) a začít schématem.
-Každý úkol = vlastní větev a PR (`f3/f3.1-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+F3 běží (viz seznam úkolů výše). Každý úkol = vlastní větev a PR (`f3/f3.x-<slug>`, base = větev předchozího
+nemergovaného PR, jinak `main`).
 Po merge F2 spusť v ostrém provozu po importu historie `POST /api/v1/admin/market/replay` od data importu
 (vytvoří listingy a ceny z Elo historie).
 Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
