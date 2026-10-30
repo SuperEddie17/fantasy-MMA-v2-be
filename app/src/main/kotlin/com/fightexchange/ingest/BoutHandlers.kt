@@ -16,7 +16,7 @@ class BoutAnnouncedHandler(
         payload: IngestPayload,
     ): HandlerOutcome {
         payload as IngestPayload.BoutAnnounced
-        val (eventId, orgId) = support.eventRow(conn, event.source, payload.eventExternalId)
+        val (eventId, orgId) = support.eventRow(conn, payload.eventSource ?: event.source, payload.eventExternalId)
         if (exists(conn, event.source, payload.boutExternalId)) return HandlerOutcome.APPLIED
         val a = support.resolveFighter(conn, event.source, orgId, payload.fighterA)
         val b = support.resolveFighter(conn, event.source, orgId, payload.fighterB)
@@ -83,7 +83,7 @@ class BoutChangedHandler(
         payload: IngestPayload,
     ): HandlerOutcome {
         payload as IngestPayload.BoutChanged
-        val bout = support.boutRow(conn, event.source, payload.boutExternalId)
+        val bout = support.boutRow(conn, payload.boutSource ?: event.source, payload.boutExternalId)
         check(bout.status in OPEN_STATUSES) { "Bout ${payload.boutExternalId} is ${bout.status} and cannot change" }
         val a = payload.fighterA?.let { support.resolveFighter(conn, event.source, bout.organizationId, it) }
         val b = payload.fighterB?.let { support.resolveFighter(conn, event.source, bout.organizationId, it) }
@@ -94,12 +94,17 @@ class BoutChangedHandler(
         conn
             .prepareStatement(
                 "UPDATE bout SET fighter_a_id = COALESCE(?, fighter_a_id), fighter_b_id = COALESCE(?, fighter_b_id), " +
-                    "bout_type = COALESCE(?, bout_type) WHERE id = ?",
+                    "bout_type = COALESCE(?, bout_type), announced_at_admin = COALESCE(?, announced_at_admin) " +
+                    "WHERE id = ?",
             ).use { ps ->
                 ps.setObject(1, a)
                 ps.setObject(2, b)
                 ps.setString(3, payload.boutType)
-                ps.setLong(4, bout.id)
+                ps.setTimestamp(
+                    4,
+                    payload.announcedAt?.takeIf { event.source == ADMIN_SOURCE }?.let { Timestamp.from(it) },
+                )
+                ps.setLong(5, bout.id)
                 ps.executeUpdate()
             }
         return HandlerOutcome.APPLIED
@@ -141,7 +146,7 @@ class BoutCancelledHandler(
         event: StoredIngestEvent,
         payload: IngestPayload.BoutCancelled,
     ): HandlerOutcome {
-        val bout = support.boutRow(conn, event.source, payload.boutExternalId)
+        val bout = support.boutRow(conn, payload.boutSource ?: event.source, payload.boutExternalId)
         check(bout.status != "COMPLETED") { "Bout ${payload.boutExternalId} is already completed" }
         val withdrawn = payload.withdrawnFighter?.let { support.resolveInBout(conn, event.source, bout, it) }
         conn
@@ -169,7 +174,7 @@ class OddsSnapshotHandler(
         payload: IngestPayload,
     ): HandlerOutcome {
         payload as IngestPayload.OddsSnapshot
-        val bout = support.boutRow(conn, event.source, payload.boutExternalId)
+        val bout = support.boutRow(conn, payload.boutSource ?: event.source, payload.boutExternalId)
         conn
             .prepareStatement(
                 "INSERT INTO odds_snapshot (bout_id, source, taken_at, odds_a, odds_b, is_closing) " +
@@ -215,7 +220,7 @@ class BoutResultHandler(
         event: StoredIngestEvent,
         payload: IngestPayload.BoutResult,
     ): HandlerOutcome {
-        val bout = support.boutRow(conn, event.source, payload.boutExternalId)
+        val bout = support.boutRow(conn, payload.boutSource ?: event.source, payload.boutExternalId)
         check(bout.status != "CANCELLED") { "Bout ${payload.boutExternalId} is cancelled" }
         val winner = payload.winner?.let { support.resolveInBout(conn, event.source, bout, it) }
         val bonusFighters = payload.bonuses.map { support.resolveInBout(conn, event.source, bout, it.fighter) }

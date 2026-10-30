@@ -49,6 +49,7 @@ class FighterMatcher {
         organizationId: Long,
         ref: IngestPayload.FighterRef,
     ): FighterMatch {
+        ref.id?.let { id -> findById(conn, id)?.let { return FighterMatch.Matched(it) } }
         ref.externalId?.let { externalId ->
             findByExternalId(conn, source, externalId)?.let { return FighterMatch.Matched(it) }
         }
@@ -67,6 +68,15 @@ class FighterMatcher {
         val id: Long,
         val division: String?,
     )
+
+    private fun findById(
+        conn: Connection,
+        id: Long,
+    ): Long? =
+        conn.prepareStatement("SELECT COALESCE(merged_into_id, id) FROM fighter WHERE id = ?").use { ps ->
+            ps.setLong(1, id)
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+        }
 
     private fun findByExternalId(
         conn: Connection,
