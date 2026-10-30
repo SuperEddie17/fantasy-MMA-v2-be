@@ -7,8 +7,8 @@
 
 ## Aktuální stav
 
-- **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.9 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Aktuální fáze:** F2 – Trh a ceny
+- **Stav fáze:** rozpracováno (F2.1 hotovo; F0 a F1 v `main`, PR #2 a #12)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -16,8 +16,8 @@
 | Fáze | Obsah | Stav | PR |
 | --- | --- | --- | --- |
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
-| F1 | Sportovní data a admin | 🟡 rozpracováno | – |
-| F2 | Trh a ceny | ⚪ nezačato | – |
+| F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
+| F2 | Trh a ceny | 🟡 rozpracováno | – |
 | F3 | Hráči, portfolio, obchodování | ⚪ nezačato | – |
 | F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
 | F5 | Automatická data | ⚪ nezačato | – |
@@ -62,7 +62,22 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.8 Hromadné zadání výsledků karty (`POST /admin/events/{id}/results`), ruční kurzy (`POST /admin/bouts/{id}/odds`), `AdminApiTest`
 - [x] F1.9 Import historie (`:app:importHistory --file=`, `POST /admin/import/history`), `HistoryImporter`, `EloService.recalculateBouts`, `HistoryImportTest` (Elo 7 061 zápasů UFC = simulace)
 
-## F2–F6
+## F2 – Trh a ceny
+
+Detail viz [`plan.md`](plan.md#fáze-2--trh-a-ceny-23-týdny).
+Hotovo, když: přehrání roku 2025 vytvoří cenové křivky odpovídající simulaci (koncové ceny ±1 %)
+a endpoint historie vrací graf s vysvětlením každého pohybu.
+
+- [x] F2.1 Flyway `V006__market.sql`: `market_listing`, `price_event`, `price_daily`, `MarketSchemaTest`
+- [ ] F2.2 `MarketService` jádro: IPO (`fighter.upsert` → listing), cena ze základní hodnoty × multiplikátor × poptávka, zápis `price_event`
+- [ ] F2.3 Reakce na `bout.announced` / `bout.changed` / `bout.cancelled` (bonusy, bonus za silnějšího soupeře, pokles při zrušení)
+- [ ] F2.4 Reakce na `odds.snapshot` (drift v týdnu zápasu), `ranking.snapshot` a `bout.result` (nové Elo, multiplikátor = 1)
+- [ ] F2.5 `InactivityJob`, `PriceDailyJob` (`@Scheduled` + ShedLock v Postgresu, idempotentní)
+- [ ] F2.6 Čtecí endpointy `/api/v1/market`, `/{id}`, `/{id}/history`, `/{id}/events`
+- [ ] F2.7 Admin: `POST /admin/market/{id}/delist`, `POST /admin/market/replay`
+- [ ] F2.8 Přehrání roku 2025 přes ingest = ceny simulace (±1 %)
+
+## F3–F6
 
 Rozepíší se při startu příslušné fáze.
 
@@ -74,6 +89,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F2 | Rozpis F2 na úkoly F2.1–F2.8 (schéma → jádro → reakce na události → úlohy → endpointy → admin → přehrání 2025). `V006`: `price_event.at` je čas události (ne zápisu, ten je `created_at`), `event_multiplier`/`demand_factor` jsou `NUMERIC(12,6)`, `market_listing` hlídá `DELISTED` ⇔ `delisted_at` a `price_daily` `low ≤ open,close ≤ high` | plán tabulky popisuje jen přibližně; invarianty hlídá DB |
 | 2026-10-30 | F1 | Import historie: CSV ve sloupcích `ufc-master.csv` (povinné `date`, `R_fighter`, `B_fighter`, `Winner`, `finish`; volitelné kurzy v americkém formátu, `finish_round`, `title_bout`, `no_of_rounds`, `gender`, `weight_class`). Zdroj `HISTORY`: event na den (`HIST-<ORG>-<datum>`), zápas `HIST-<ORG>-<datum>-<pořadí>`, zápasník = normalizované jméno; opakovaný import přeskočí existující zápasy. Zápasy se řadí podle data (stabilně), Elo se počítá novým `EloService.recalculateBouts` (množina nových zápasů se hodnotí vždy, ne jen ta, co se dotýkají „špinavých“ zápasníků). Bez `Winner` je výsledek no contest (jako `sim.py`), remíza jen když `finish` obsahuje „draw“; neznámá metoda s vítězem = `DEC_U`. Chybné řádky se přeskočí a hlásí (max. 20). Zápasníci se párují podle normalizovaného jména, takže 8 variant pravopisu v datech (`Da-Un Jung` / `Da Un Jung`) je jeden zápasník, kdežto `sim.py` je bere jako dva; test proto porovnává Elo podle normalizovaného jména. Dotaz na Elo před zápasem čte jen `elo_rating` (index podle zápasníka), původní join s `event` byl při hromadném importu pomalý | plán: import historie dá stejné Elo jako simulace; jedna pravda pro zápasníky napříč zdroji |
 | 2026-10-30 | F1 | Hromadné zadání karty: nejdřív se zvaliduje celé tělo (zápasy musí patřit k eventu, každý max. jednou, vítěz/bonusy existují) a při chybě se nezapíše nic (400); pak se výsledky zadávají po jednom přes ingest a odpověď (200) vrací stav každého zápasu (`APPLIED`/`NEEDS_REVIEW`/`REJECTED`). Ruční kurz: desetinný kurz > 1 u obou stran, `closing` označí závěrečný kurz, `takenAt` výchozí teď | chyba v jednom zápase nesmí nechat kartu napůl zadanou kvůli překlepu; neplatné kombinace se chytí předem |
 | 2026-10-30 | F1 | Admin API: admin formuláře jdou přes `IngestService` se `source = ADMIN` a zpracují se synchronně (201 vytvořeno / 200 změněno / 202 čeká ve frontě ke kontrole / 422 zamítnuto). Zápasníky v těle žádostí adresuje naše `id` (`FighterRef.id`), cizí zápasy a eventy se adresují přidaným `boutSource`/`eventSource` v payloadu (nepovinná pole na konci). `PATCH /bouts/{id}` umí i `announcedAt` (zapíše `announced_at_admin`) | admin edituje i zápasy ze zdrojů UFC/PFL, ne jen vlastní |
@@ -114,12 +130,10 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1 je funkčně hotová (F1.1–F1.9). Zbývá merge PR a ověření kritéria „admin zadá event za ≤ 15 minut“.
-Pak F2 – Trh a ceny: rozepsat úkoly F2 z [`plan.md`](plan.md) do trackeru a začít prvním z nich.
-Každý úkol = vlastní větev a PR.
-
-Pozor: PR #9–#11 (F1.6–F1.8) se mergovaly do mezilehlých větví, ne do `main`; do `main` se dostanou až s PR
-za F1.9 (větev je založená na `f1/f1.7-admin-api`, která je obsahuje).
+F1 je hotová a v `main`. F2 běží: F2.1 (schéma trhu) je hotové, další je **F2.2** – `MarketService`
+jádro (IPO při `fighter.upsert`, výpočet ceny, `price_event`). Každý úkol = vlastní větev a PR
+(`f2/f2.2-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`).
+Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
