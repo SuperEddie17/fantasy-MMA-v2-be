@@ -74,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | proces | Pro každou dokončenou část plánu agent otevře PR sám (bez další žádosti); merguje až uživatel. Nahrazuje dřívější „PR jen na žádost“ | výslovný pokyn uživatele, zapsáno do `CLAUDE.md` |
 | 2026-10-30 | F1 | `FighterMatcher.match` vrací `Matched` (external id, nebo jedinečné normalizované jméno s potvrzující divizí), `Uncertain` (jméno sedí, ale divize nepotvrzuje / víc kandidátů) a `NotFound`; hledá se i s obráceným pořadím jmen, jen v dané organizaci a mimo sloučené zápasníky; external id sloučeného zápasníka vede na cílového | plán: nejistá shoda → review; automaticky se páruje jen to, co je jisté |
 | 2026-10-30 | proces | Všechny změny (i dokumentace) jdou do `master` jen přes PR po zelené CI, nikdy přímým pushem; PR otevírá agent jen na žádost, merguje uživatel | pokyn uživatele, zapsáno do `CLAUDE.md` |
 | 2026-10-30 | F1 | Ingest přes JDBC a `TransactionOperations<Connection>` (ne Micronaut Data repozitáře); pool Micronaut Data je `autoCommit=false`, transakce proto řídí jen `tx.executeWrite/Read`; testy ingestu jsou `@MicronautTest(transactional = false)` | jedna transakce na událost s rollbackem při výjimce handleru; přímý `DataSource.connection` mimo transakci nefunguje |
