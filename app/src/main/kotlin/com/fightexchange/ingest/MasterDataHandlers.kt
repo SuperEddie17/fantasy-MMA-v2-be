@@ -175,6 +175,7 @@ class EventUpsertHandler(
 @Singleton
 class RankingSnapshotHandler(
     private val support: IngestSupport,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.RANKING_SNAPSHOT
 
@@ -185,6 +186,7 @@ class RankingSnapshotHandler(
     ): HandlerOutcome {
         payload as IngestPayload.RankingSnapshot
         val orgId = support.organizationId(conn, payload.organization)
+        val seenBefore = snapshotExists(conn, payload)
         var skipped = 0
         conn
             .prepareStatement(
@@ -209,8 +211,27 @@ class RankingSnapshotHandler(
         ) {
             log.info("Ranking event {}: {} fighters could not be matched and were skipped", event.id, skipped)
         }
+        if (!seenBefore) {
+            market.applyRanking(
+                conn,
+                payload.division,
+                payload.takenAt,
+                PriceCause(PriceEventKind.RANKING, payload.takenAt, ingestEventId = event.id),
+            )
+        }
         return HandlerOutcome.APPLIED
     }
+
+    /** A snapshot sent twice must move prices once. */
+    private fun snapshotExists(
+        conn: Connection,
+        payload: IngestPayload.RankingSnapshot,
+    ): Boolean =
+        conn.prepareStatement("SELECT 1 FROM ranking_snapshot WHERE division = ? AND taken_at = ? LIMIT 1").use { ps ->
+            ps.setString(1, payload.division)
+            ps.setTimestamp(2, Timestamp.from(payload.takenAt))
+            ps.executeQuery().use { it.next() }
+        }
 
     private companion object {
         val log = LoggerFactory.getLogger(RankingSnapshotHandler::class.java)

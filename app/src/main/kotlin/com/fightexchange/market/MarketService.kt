@@ -7,7 +7,9 @@ import com.fightexchange.rules.RuleSet
 import jakarta.inject.Singleton
 import java.sql.Connection
 import java.sql.Timestamp
+import java.time.Duration
 import java.time.Instant
+import kotlin.math.round
 
 enum class PriceEventKind {
     ELO,
@@ -214,6 +216,7 @@ class MarketService {
         rules: RuleSet = RuleSet.V2,
     ) {
         syncBout(conn, boutId, cause, rules)
+        driftBout(conn, boutId, cause.copy(note = cause.note ?: "bout cancelled"), rules)
         if (withdrawn == null) return
         val drop =
             if (reason?.contains("injur", ignoreCase = true) ==
@@ -230,6 +233,274 @@ class MarketService {
             1.0 - drop,
             rules = rules,
         )
+    }
+
+    /**
+     * Fight-week odds drift: for an open bout whose latest odds were taken within `driftWindow` of the event start,
+     * each fighter's multiplier carries `Pricing.oddsDrift` (odds probability against Elo expectation). A newer
+     * snapshot moves only the difference to what is applied; a bout that is cancelled, completed or has no odds
+     * in the window gets its drift taken back.
+     */
+    fun driftBout(
+        conn: Connection,
+        boutId: Long,
+        cause: PriceCause,
+        rules: RuleSet = RuleSet.V2,
+    ) {
+        val bout = boutSides(conn, boutId)
+        val applied = drifts(conn, boutId)
+        val target =
+            if (bout.status == "CANCELLED" ||
+                bout.status == "COMPLETED"
+            ) {
+                emptyMap()
+            } else {
+                targetDrift(conn, boutId, bout, rules)
+            }
+        for (fighterId in applied.keys + target.keys) {
+            val before = applied[fighterId] ?: 1.0
+            val after = target[fighterId] ?: 1.0
+            if (after == before) continue
+            ensureListed(conn, fighterId, cause.copy(boutId = null, note = null), rules)
+            apply(
+                conn,
+                fighterId,
+                cause.copy(kind = PriceEventKind.ODDS_DRIFT, boutId = boutId),
+                after / before,
+                rules = rules,
+            )
+            storeDrift(conn, boutId, fighterId, after.takeIf { it != 1.0 })
+        }
+    }
+
+    private fun targetDrift(
+        conn: Connection,
+        boutId: Long,
+        bout: BoutSides,
+        rules: RuleSet,
+    ): Map<Long, Double> {
+        val odds = latestOddsInWindow(conn, boutId) ?: return emptyMap()
+        val eloA = currentElo(conn, bout.fighterA, rules)
+        val eloB = currentElo(conn, bout.fighterB, rules)
+        return mapOf(
+            bout.fighterA to round6(Pricing.oddsDrift(odds.first, odds.second, eloA, eloB, rules)),
+            bout.fighterB to round6(Pricing.oddsDrift(odds.second, odds.first, eloB, eloA, rules)),
+        )
+    }
+
+    /** (odds A, odds B) of the newest snapshot taken at most [DRIFT_WINDOW] before the event starts. */
+    private fun latestOddsInWindow(
+        conn: Connection,
+        boutId: Long,
+    ): Pair<Double, Double>? =
+        conn
+            .prepareStatement(
+                "SELECT o.odds_a, o.odds_b FROM odds_snapshot o JOIN bout b ON b.id = o.bout_id " +
+                    "JOIN event e ON e.id = b.event_id WHERE o.bout_id = ? " +
+                    "AND o.taken_at >= e.starts_at - make_interval(days => ?) " +
+                    "AND o.taken_at <= e.starts_at ORDER BY o.taken_at DESC, o.id DESC LIMIT 1",
+            ).use { ps ->
+                ps.setLong(1, boutId)
+                ps.setInt(2, DRIFT_WINDOW.toDays().toInt())
+                ps.executeQuery().use { rs -> if (rs.next()) rs.getDouble(1) to rs.getDouble(2) else null }
+            }
+
+    /**
+     * A finished bout: its announcement bump and drift are gone, so each fighter's multiplier falls back to what
+     * their other open bouts still add (1 when none) and the base value follows the new Elo. Fighters whose Elo
+     * moved only because a later bout was recalculated get the new base value as well.
+     */
+    fun settleBout(
+        conn: Connection,
+        boutId: Long,
+        cause: PriceCause,
+        rules: RuleSet = RuleSet.V2,
+    ) {
+        val bout = boutSides(conn, boutId)
+        for (table in listOf("bout_price_bump", "bout_price_drift")) {
+            conn.prepareStatement("DELETE FROM $table WHERE bout_id = ?").use { ps ->
+                ps.setLong(1, boutId)
+                ps.executeUpdate()
+            }
+        }
+        for (fighterId in listOf(bout.fighterA, bout.fighterB)) {
+            ensureListed(conn, fighterId, cause.copy(boutId = null, note = null), rules)
+            refresh(
+                conn,
+                fighterId,
+                cause.copy(kind = PriceEventKind.RESULT_RESET),
+                resetMultiplier(conn, fighterId),
+                rules,
+            )
+            markFought(conn, fighterId, boutId)
+        }
+        val later =
+            conn
+                .prepareStatement(
+                    "SELECT DISTINCT r.fighter_id FROM elo_rating r WHERE r.rated_at >= " +
+                        "(SELECT e.starts_at FROM bout b JOIN event e ON e.id = b.event_id WHERE b.id = ?)",
+                ).use { ps ->
+                    ps.setLong(1, boutId)
+                    ps.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getLong(1)) } }
+                }
+        for (fighterId in later - setOf(bout.fighterA, bout.fighterB)) {
+            val note = "Elo recalculated"
+            refresh(conn, fighterId, cause.copy(kind = PriceEventKind.ELO, note = cause.note ?: note), null, rules)
+        }
+    }
+
+    /** Moves the base value to the current Elo (and the multiplier to [multiplier]); logs only a real change. */
+    private fun refresh(
+        conn: Connection,
+        fighterId: Long,
+        cause: PriceCause,
+        multiplier: Double?,
+        rules: RuleSet,
+    ) {
+        val current = listing(conn, fighterId)?.takeIf { it.status != "DELISTED" } ?: return
+        val base = Pricing.basePrice(currentElo(conn, fighterId, rules), rules)
+        val mult = multiplier?.let(::round6)
+        if (base == current.baseValue && (mult == null || mult == round6(current.eventMultiplier))) return
+        apply(conn, fighterId, cause, baseValue = base, resetMultiplier = mult, rules = rules)
+    }
+
+    /** Product of the bumps and drifts that the fighter's other open bouts still carry. */
+    private fun resetMultiplier(
+        conn: Connection,
+        fighterId: Long,
+    ): Double =
+        conn
+            .prepareStatement(
+                "SELECT COALESCE(EXP(SUM(LN(1 + base_bump) + LN(1 + opp_bump))), 1) FROM bout_price_bump " +
+                    "WHERE fighter_id = ?",
+            ).use { ps ->
+                ps.setLong(1, fighterId)
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getDouble(1)
+                }
+            } *
+            conn
+                .prepareStatement("SELECT COALESCE(EXP(SUM(LN(factor))), 1) FROM bout_price_drift WHERE fighter_id = ?")
+                .use { ps ->
+                    ps.setLong(1, fighterId)
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getDouble(1)
+                    }
+                }
+
+    private fun markFought(
+        conn: Connection,
+        fighterId: Long,
+        boutId: Long,
+    ) {
+        conn
+            .prepareStatement(
+                "UPDATE market_listing SET last_fight_at = GREATEST(COALESCE(last_fight_at, '-infinity'), " +
+                    "(SELECT e.starts_at FROM bout b JOIN event e ON e.id = b.event_id WHERE b.id = ?)) " +
+                    "WHERE fighter_id = ?",
+            ).use { ps ->
+                ps.setLong(1, boutId)
+                ps.setLong(2, fighterId)
+                ps.executeUpdate()
+            }
+    }
+
+    /**
+     * A ranking snapshot of [division]: every fighter whose rank changed since the previous snapshot of that
+     * division moves by `Pricing.rankingFactor`. The first snapshot of a division only sets the baseline.
+     * Call it once per snapshot, after its rows are stored.
+     */
+    fun applyRanking(
+        conn: Connection,
+        division: String,
+        takenAt: Instant,
+        cause: PriceCause,
+        rules: RuleSet = RuleSet.V2,
+    ) {
+        val previousAt =
+            conn
+                .prepareStatement(
+                    "SELECT max(taken_at) FROM ranking_snapshot WHERE division = ? AND taken_at < ?",
+                ).use { ps ->
+                    ps.setString(1, division)
+                    ps.setTimestamp(2, Timestamp.from(takenAt))
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getTimestamp(1)?.toInstant()
+                    }
+                } ?: return
+        val previous = ranks(conn, division, previousAt)
+        val current = ranks(conn, division, takenAt)
+        for (fighterId in (previous.keys + current.keys).sorted()) {
+            val factor = Pricing.rankingFactor(previous[fighterId], current[fighterId], rules)
+            if (factor == 1.0 || listing(conn, fighterId) == null) continue
+            val note = "$division: ${previous[fighterId] ?: "unranked"} -> ${current[fighterId] ?: "unranked"}"
+            apply(
+                conn,
+                fighterId,
+                cause.copy(kind = PriceEventKind.RANKING, at = takenAt, note = cause.note ?: note),
+                factor,
+                rules = rules,
+            )
+        }
+    }
+
+    private fun ranks(
+        conn: Connection,
+        division: String,
+        takenAt: Instant,
+    ): Map<Long, Int> =
+        conn
+            .prepareStatement("SELECT fighter_id, rank FROM ranking_snapshot WHERE division = ? AND taken_at = ?")
+            .use { ps ->
+                ps.setString(1, division)
+                ps.setTimestamp(2, Timestamp.from(takenAt))
+                ps.executeQuery().use { rs -> buildMap { while (rs.next()) put(rs.getLong(1), rs.getInt(2)) } }
+            }
+
+    private fun drifts(
+        conn: Connection,
+        boutId: Long,
+    ): Map<Long, Double> =
+        conn
+            .prepareStatement("SELECT fighter_id, factor FROM bout_price_drift WHERE bout_id = ?")
+            .use { ps ->
+                ps.setLong(1, boutId)
+                ps.executeQuery().use { rs -> buildMap { while (rs.next()) put(rs.getLong(1), rs.getDouble(2)) } }
+            }
+
+    private fun storeDrift(
+        conn: Connection,
+        boutId: Long,
+        fighterId: Long,
+        factor: Double?,
+    ) {
+        if (factor == null) {
+            conn.prepareStatement("DELETE FROM bout_price_drift WHERE bout_id = ? AND fighter_id = ?").use { ps ->
+                ps.setLong(1, boutId)
+                ps.setLong(2, fighterId)
+                ps.executeUpdate()
+            }
+            return
+        }
+        conn
+            .prepareStatement(
+                "INSERT INTO bout_price_drift (bout_id, fighter_id, factor) VALUES (?, ?, ?) " +
+                    "ON CONFLICT (bout_id, fighter_id) DO UPDATE SET factor = EXCLUDED.factor",
+            ).use { ps ->
+                ps.setLong(1, boutId)
+                ps.setLong(2, fighterId)
+                ps.setDouble(3, factor)
+                ps.executeUpdate()
+            }
+    }
+
+    private fun round6(v: Double) = round(v * 1_000_000) / 1_000_000
+
+    private companion object {
+        val DRIFT_WINDOW: Duration = Duration.ofDays(7)
     }
 
     private data class Bump(

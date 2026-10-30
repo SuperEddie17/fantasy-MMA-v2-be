@@ -46,6 +46,16 @@ class RulesTest {
     }
 
     @Test
+    fun `ranking factor moves by rank change, is capped and treats missing rank as unranked`() {
+        assertEquals(1.0, Pricing.rankingFactor(5, 5), 1e-12)
+        assertEquals(1.015, Pricing.rankingFactor(8, 5), 1e-12)
+        assertEquals(0.99, Pricing.rankingFactor(3, 5), 1e-12)
+        assertEquals(1.05, Pricing.rankingFactor(15, 1), 1e-12)
+        assertEquals(0.95, Pricing.rankingFactor(1, null), 1e-12)
+        assertEquals(1.005, Pricing.rankingFactor(null, 15), 1e-12)
+    }
+
+    @Test
     fun `inactivity boundaries`() {
         assertEquals(1.0, Inactivity.weeklyFactor(26.0, false))
         assertEquals(0.99, Inactivity.weeklyFactor(26.1, false))
