@@ -7,7 +7,6 @@ import jakarta.inject.Singleton
 import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.Timestamp
-import java.time.Instant
 
 @Singleton
 class FighterUpsertHandler(
@@ -51,7 +50,7 @@ class FighterUpsertHandler(
         fighterId: Long,
         event: StoredIngestEvent,
     ) {
-        market.ensureListed(conn, fighterId, PriceCause(PriceEventKind.ELO, Instant.now(), ingestEventId = event.id))
+        market.ensureListed(conn, fighterId, PriceCause(PriceEventKind.ELO, support.now(), ingestEventId = event.id))
     }
 
     private fun insert(

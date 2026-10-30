@@ -3,6 +3,8 @@ package com.fightexchange.ingest
 import io.micronaut.context.annotation.Property
 import jakarta.inject.Singleton
 import java.sql.Connection
+import java.time.Clock
+import java.time.Instant
 
 /** Source used by admin forms; its events are already confirmed by the admin. */
 const val ADMIN_SOURCE = "ADMIN"
@@ -31,7 +33,11 @@ data class BoutRow(
 @Singleton
 class IngestSupport(
     private val matcher: FighterMatcher,
+    private val clock: Clock,
 ) {
+    /** Time stamped on the effects of the event being handled (market price events, announcement seen). */
+    fun now(): Instant = clock.instant()
+
     fun organizationId(
         conn: Connection,
         code: String,

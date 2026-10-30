@@ -30,7 +30,7 @@ class BoutAnnouncedHandler(
             return HandlerOutcome.NEEDS_REVIEW
         }
         val boutId = insert(conn, event.source, eventId, payload, a, b)
-        market.syncBout(conn, boutId, priceCause(event, boutId))
+        market.syncBout(conn, boutId, priceCause(support.now(), event, boutId))
         return HandlerOutcome.APPLIED
     }
 
@@ -62,7 +62,7 @@ class BoutAnnouncedHandler(
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             ).use { ps ->
                 val announced = p.announcedAt?.let { Timestamp.from(it) }
-                val now = Timestamp(System.currentTimeMillis())
+                val now = Timestamp.from(support.now())
                 ps.setLong(1, eventId)
                 ps.setLong(2, a)
                 ps.setLong(3, b)
@@ -117,8 +117,8 @@ class BoutChangedHandler(
                 ps.setLong(5, bout.id)
                 ps.executeUpdate()
             }
-        market.syncBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.ANNOUNCED))
-        market.driftBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.ODDS_DRIFT))
+        market.syncBout(conn, bout.id, priceCause(support.now(), event, bout.id, PriceEventKind.ANNOUNCED))
+        market.driftBout(conn, bout.id, priceCause(support.now(), event, bout.id, PriceEventKind.ODDS_DRIFT))
         return HandlerOutcome.APPLIED
     }
 
@@ -164,11 +164,13 @@ class BoutCancelledHandler(
         val withdrawn = payload.withdrawnFighter?.let { support.resolveInBout(conn, event.source, bout, it) }
         conn
             .prepareStatement(
-                "UPDATE bout SET status = 'CANCELLED', cancel_reason = ?, withdrawn_fighter_id = ? WHERE id = ?",
+                "UPDATE bout SET status = 'CANCELLED', cancel_reason = ?, withdrawn_fighter_id = ?, " +
+                    "cancelled_at = COALESCE(cancelled_at, ?) WHERE id = ?",
             ).use { ps ->
                 ps.setString(1, payload.reason)
                 ps.setObject(2, withdrawn)
-                ps.setLong(3, bout.id)
+                ps.setTimestamp(3, Timestamp.from(support.now()))
+                ps.setLong(4, bout.id)
                 ps.executeUpdate()
             }
         if (bout.status != "CANCELLED") {
@@ -177,7 +179,7 @@ class BoutCancelledHandler(
                 bout.id,
                 withdrawn,
                 payload.reason,
-                priceCause(event, bout.id, PriceEventKind.CANCELLED),
+                priceCause(support.now(), event, bout.id, PriceEventKind.CANCELLED),
             )
         }
         return HandlerOutcome.APPLIED
@@ -186,10 +188,11 @@ class BoutCancelledHandler(
 
 /** Reason for a price change caused by an ingest event; the market service refines the kind per change. */
 private fun priceCause(
+    at: Instant,
     event: StoredIngestEvent,
     boutId: Long,
     kind: PriceEventKind = PriceEventKind.ANNOUNCED,
-) = PriceCause(kind, Instant.now(), boutId, event.id)
+) = PriceCause(kind, at, boutId, event.id)
 
 @Singleton
 class OddsSnapshotHandler(
@@ -277,7 +280,7 @@ class BoutResultHandler(
             ps.executeUpdate()
         }
         elo.recalculateFrom(conn, bout.id)
-        market.settleBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.RESULT_RESET))
+        market.settleBout(conn, bout.id, priceCause(support.now(), event, bout.id, PriceEventKind.RESULT_RESET))
         return HandlerOutcome.APPLIED
     }
 

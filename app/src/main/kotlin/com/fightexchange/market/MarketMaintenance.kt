@@ -9,7 +9,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
-import kotlin.math.floor
+import kotlin.math.ceil
 import kotlin.math.pow
 
 /** Periodic market bookkeeping behind [MarketJobs]: inactivity decay and the daily OHLC rows. */
@@ -22,18 +22,21 @@ class MarketMaintenance(
      * for a fighter who never fought) multiplies the price by `1 - decay`, once per week however often this runs.
      * A fighter with an announced bout does not decay (the missed weeks are written off); beyond `delistWeeks`
      * without an announced bout the fighter is delisted. Returns the number of listings changed.
+     * The first decay comes as soon as the gap exceeds `inactiveWeeks`, then one per further week (as `sim.py`
+     * steps weekly). [record] false (a replay catching up) changes the listings without logging price events.
      */
     fun applyInactivity(
         conn: Connection,
         now: Instant,
         rules: RuleSet = RuleSet.V2,
+        record: Boolean = true,
     ): Int {
         val rows =
             conn
                 .prepareStatement(
                     "SELECT l.fighter_id, COALESCE(l.last_fight_at, l.listed_at), l.inactivity_ticks, " +
-                        "EXISTS (SELECT 1 FROM bout b WHERE l.fighter_id IN (b.fighter_a_id, b.fighter_b_id) " +
-                        "AND b.status IN ('ANNOUNCED', 'CONFIRMED')) FROM market_listing l " +
+                        "EXISTS (SELECT 1 FROM bout_price_bump u WHERE u.fighter_id = l.fighter_id) " +
+                        "FROM market_listing l " +
                         "WHERE l.status <> 'DELISTED' ORDER BY l.fighter_id",
                 ).use { ps ->
                     ps.executeQuery().use { rs ->
@@ -53,9 +56,10 @@ class MarketMaintenance(
                 }
         var changed = 0
         for (row in rows) {
-            val weeks = Duration.between(row.since, now).toDays() / 7.0
-            val cause = PriceCause(PriceEventKind.INACTIVITY, now)
-            val due = maxOf(0, floor(weeks).toInt() - floor(rules.inactiveWeeks).toInt())
+            val days = Duration.between(row.since, now).toDays()
+            val weeks = days / 7.0
+            val cause = PriceCause(PriceEventKind.INACTIVITY, now, record = record)
+            val due = maxOf(0, ceil((days - rules.inactiveWeeks * 7.0) / 7.0).toInt())
             if (Inactivity.shouldDelist(weeks, row.announced, rules)) {
                 market.delist(conn, row.fighterId, cause.copy(note = "no fight for ${weeks.toInt()} weeks"))
                 changed++
