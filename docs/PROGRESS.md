@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.3 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.4 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -55,7 +55,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.1 Flyway `V003__sport_data.sql`: všechny sportovní tabulky + seed 5 organizací, `SportSchemaTest`
 - [x] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor` (`IngestCoreTest`)
 - [x] F1.3 `FighterMatcher` (external id → normalizované jméno + divize; nejistá shoda vrací `Uncertain`, `review_item` zakládá handler v F1.4), `FighterMatcherTest`
-- [ ] F1.4 Zpracování typů událostí (`fighter.upsert` … `ranking.snapshot`), konfigurace potvrzování adminem
+- [x] F1.4 Handlery všech 8 typů událostí (`MasterDataHandlers`, `BoutHandlers`), `ConfirmationPolicy` (`ingest.confirmation.required-types`), Flyway `V004__bout_external_id.sql`, `IngestHandlersTest`
 - [ ] F1.5 Elo po `bout.result`, oprava výsledku = nová verze + přepočet od zápasu dál
 - [ ] F1.6 Veřejné čtecí endpointy (organizace, zápasníci, eventy)
 - [ ] F1.7 Admin API + statický admin účet (Micronaut Security basic → JWT) + fronta ke kontrole
@@ -74,6 +74,9 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F1 | Zápas se adresuje dvojicí (`source`, `external_id`) (V004: `bout.source`, `bout.external_id`, `bout.withdrawn_fighter_id`); eventy z `ADMIN` se nepotvrzují, ostatní zdroje čekají u typů v `ingest.confirmation.required-types` (výchozí `bout.result`, `bout.cancelled`) → `review_item` `RESULT_CONFIRM`/`CANCELLATION`. `BoutResultHandler.apply`/`BoutCancelledHandler.apply` jsou veřejné pro potvrzení v F1.7 | plán nemá sloupec pro externí id zápasu; admin je sám potvrzovatel |
+| 2026-10-30 | F1 | Nejistý/neznámý zápasník v `bout.*` → `review_item` `FIGHTER_MATCH`, nic se nezapíše; neznámý event/zápas = `REJECTED`; `ranking.snapshot` nespárované zápasníky přeskočí (log) | hromadná data nemají blokovat; ostatní chyby jsou data zdroje |
+| 2026-10-30 | F1 | `bout.result` zapíše novou verzi `bout_result` (předchozí `is_current=false`), bonusy a přetížení se nahradí, zápas → `COMPLETED`; Elo zatím ne (F1.5) | oprava výsledku = nová verze dle plánu |
 | 2026-10-30 | proces | Pro každou dokončenou část plánu agent otevře PR sám (bez další žádosti); merguje až uživatel. Nahrazuje dřívější „PR jen na žádost“ | výslovný pokyn uživatele, zapsáno do `CLAUDE.md` |
 | 2026-10-30 | F1 | `FighterMatcher.match` vrací `Matched` (external id, nebo jedinečné normalizované jméno s potvrzující divizí), `Uncertain` (jméno sedí, ale divize nepotvrzuje / víc kandidátů) a `NotFound`; hledá se i s obráceným pořadím jmen, jen v dané organizaci a mimo sloučené zápasníky; external id sloučeného zápasníka vede na cílového | plán: nejistá shoda → review; automaticky se páruje jen to, co je jisté |
 | 2026-10-30 | proces | Všechny změny (i dokumentace) jdou do `master` jen přes PR po zelené CI, nikdy přímým pushem; PR otevírá agent jen na žádost, merguje uživatel | pokyn uživatele, zapsáno do `CLAUDE.md` |
@@ -101,9 +104,8 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.4: handlery `IngestHandler` pro typy `fighter.upsert` … `ranking.snapshot` (jeden bean na typ), využít
-`FighterMatcher`; `Uncertain` → `review_item` (`FIGHTER_MATCH`) a `HandlerOutcome.NEEDS_REVIEW`. Konfigurace,
-které události čekají na potvrzení adminem (výchozí `bout.result`, `bout.cancelled`). Pak F1.5 Elo.
+F1.5: Elo po `bout.result` (`rules.Elo`, zápis do `elo_rating` pro oba zápasníky), oprava výsledku = přepočet Elo
+od toho zápasu dál (`BoutResultHandler.apply` je místo napojení). Pak F1.6 veřejné čtecí endpointy.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
