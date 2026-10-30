@@ -44,6 +44,21 @@ class TradingReads {
                 ps.executeQuery().use { rs -> if (rs.next()) PortfolioState(rs.getLong(1), rs.getLong(2)) else null }
             }
 
+    /**
+     * Takes a shared lock on the fighter's listing for the rest of the transaction. A delisting updates the row, so
+     * it waits for trades in flight and trades that start later wait for it and then see the fighter delisted.
+     * Always taken before the portfolio lock (same order as the delisting).
+     */
+    fun lockListing(
+        conn: Connection,
+        fighterId: Long,
+    ) {
+        conn.prepareStatement("SELECT 1 FROM market_listing WHERE fighter_id = ? FOR SHARE").use { ps ->
+            ps.setLong(1, fighterId)
+            ps.executeQuery().use { rs -> rs.next() }
+        }
+    }
+
     /** The fighter with their listing; null when the fighter does not exist or was never listed. */
     fun fighter(
         conn: Connection,

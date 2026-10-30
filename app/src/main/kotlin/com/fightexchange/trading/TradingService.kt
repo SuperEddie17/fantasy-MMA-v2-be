@@ -86,6 +86,7 @@ class TradingService(
         if (key != null && key.length > MAX_KEY) invalid("idempotencyKey is at most $MAX_KEY characters")
         return tx.executeWrite { status ->
             val conn = status.connection
+            reads.lockListing(conn, fighterId)
             val state = state(conn, portfolioId, forUpdate = true)
             val previous = key?.let { stored(conn, portfolioId, it) }
             if (previous != null) return@executeWrite replay(previous, kind, fighterId, state.cash)
