@@ -7,8 +7,8 @@
 
 ## Aktuální stav
 
-- **Aktuální fáze:** F3 – Hráči, portfolio, obchodování
-- **Stav fáze:** hotovo, čeká na merge (F3.1–F3.8 jako řetěz stackovaných PR #20–#26 + F3.8; merguj popořadě od F3.1)
+- **Aktuální fáze:** F4 – Dividendy, kapitán, žebříčky
+- **Stav fáze:** hotovo, čeká na merge (celá F4 jako jeden PR stackovaný na F3.8; F3 řetěz merguj popořadě od F3.1)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -19,7 +19,7 @@
 | F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
 | F2 | Trh a ceny | ✅ hotovo | #14–#19 |
 | F3 | Hráči, portfolio, obchodování | 🔵 v review (stack F3.1–F3.8) | #20–#26, F3.8 |
-| F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
+| F4 | Dividendy, kapitán, žebříčky | 🔵 v review (jeden PR F4.1–F4.7) | viz PR [F4] |
 | F5 | Automatická data | ⚪ nezačato | – |
 | F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
 
@@ -92,9 +92,20 @@ a obchody v uzávěrce se odmítnou.
 - [x] F3.7 Stažení z trhu: výplata všech lotů (`FORCED_SELL`, `DELIST_PAYOUT`), noční kontrola ledgeru proti `cash_cached` (`DelistPayout`, `LedgerCheck`, `GET /admin/ledger/check`), `DelistPayoutTest`
 - [x] F3.8 Souběh a přejímka: souběžné nákupy na jedno portfolio (`TradingServiceTest`), 15 hráčů najednou přes API + kontrola ledgeru + uzávěrka (`BetaAcceptanceTest`)
 
-## F4–F6
+## F4 – Dividendy, kapitán, žebříčky
 
-Rozepíší se při startu příslušné fáze.
+Detail viz [`plan.md`](plan.md#fáze-4--dividendy-kapitán-a-žebříčky-2-týdny).
+Hotovo, když: výplata po výsledku je správná i po opravě výsledku, ledger sedí s `cash_cached`
+a žebříček (celkový i měsíční) se přepočítává z denních snímků.
+Na výslovný pokyn uživatele je celá fáze v jednom PR (výjimka z „jeden úkol = jeden PR“).
+
+- [x] F4.1 Flyway `V013__dividends_rankings.sql`: `captain_pick`, `dividend_payout`, `net_worth_snapshot`, `leaderboard_entry`
+- [x] F4.2 `PayoutService.settle` (dividenda, short, kapitán, bonusy, idempotence podle `bout_id` + `result_version`, storno při opravě výsledku), napojení na `BoutResultHandler`, `PayoutTest`
+- [x] F4.3 Kapitán: `PUT /portfolios/{id}/captain/{eventId}`, `GET /portfolios/{id}/captain`, `CaptainLockJob` (`CaptainService`), `CaptainApiTest`
+- [x] F4.4 `GET /portfolios/{id}/dividends` s rozpadem výpočtu (`DividendReads`)
+- [x] F4.5 `NetWorthJob` (00:15 UTC) a `GET /portfolios/{id}/net-worth` (`NetWorthService`, `RankingJobs`), `RankingJobsTest`
+- [x] F4.6 `LeaderboardJob` (00:20 UTC) a `MonthCloseJob` (1. den 01:00 UTC): celkové pořadí a měsíční sprint (`LeaderboardService`)
+- [x] F4.7 `GET /api/v1/leaderboard?season=&period=` (`LeaderboardController`), `CaptainApiTest`
 
 ---
 
@@ -104,6 +115,9 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F4 | Výplata (`PayoutService`, volá ji `BoutResultHandler.apply` v transakci výsledku, **před** Elo a `settleBout`, aby základ dividendy byl cena před výsledkem jako `mk.price(n, today)` v `sim.py`). Nárok má každý otevřený lot s `opened_at < bout.announced_at` (zápas bez `announced_at` nevyplácí); long navíc jen když portfolio mělo v čase eventu (`event.starts_at`) ≥ `minRoster` otevřených longů, short soupisku nevyžaduje (jako `sim.py`). Kurz: závěrečný `odds_snapshot` → poslední snapshot (včetně ručních kurzů admina) → kurz z Elo (`1 / Elo.expected`, Elo k začátku eventu) → `Dividend` použije `defaultOdds` jen při nedostupném kurzu. Bonus večera = jakýkoli řádek `bout_bonus` zápasníka, titul jen vítězi s `title_won`, přetížení z `weight_miss`. Řádek `dividend_payout` vzniká pro **každý** nárokovaný lot i s částkou 0 (prohra, remíza, no contest), proto `kind` je `LONG`/`SHORT` (ne `WIN`/`SHORT` z plánu) a sloupec `price` navíc: oprava výsledku tak může přepočítat za stejnou cenu i pro loty, které mezitím zanikly. Ledger: `DIVIDEND` (long), `SHORT_SETTLE` (short, i záporný, hotovost smí jít do mínusu), nulová částka bez ledgeru. Oprava výsledku (nová `result_version`): `REVERSAL` všech aktuálních řádků (`reverses_id`, `reversed_at`) a nová výplata pro stejné loty. Zámky: listingy obou zápasníků (`FOR UPDATE`, podle id) → portfolia držitelů (podle id), stejné pořadí jako obchod a stažení z trhu | plán: „nárok jen když `opened_at < announced_at`“, „oprava výsledku = storno + nový výpočet“ |
+| 2026-10-30 | F4 | Kapitán: jeden na portfolio a event (`captain_pick`), musí být držený long a mít otevřený zápas na kartě, změna přepíše volbu; volby se zavírají v `COALESCE(weigh_in_at, starts_at)` (409 `CAPTAIN_LOCKED`), `CaptainLockJob` (každých 5 min) jen vyplní `locked_at`, rozhodující je čas. Výplata kapitána bere z `captain_pick` bez ohledu na zámek | plán: „zamyká se při vážení“ |
+| 2026-10-30 | F4 | Snímky a žebříčky: `NetWorthJob` zapíše den = datum běhu (UTC) s hodnotou v 00:15 (hotovost + longy − shorty za ceny listingů), jen globální portfolia sezón, které běží nebo skončily před méně než dnem, přepis dne je `ON CONFLICT DO UPDATE`. `LeaderboardJob` (00:20) staví z nejnovějšího snímku do dneška `SEASON` (řazeno podle čistého jmění, `change` = jmění − `START_BUDGET`) a sprint běžícího měsíce `MONTH-yyyy-MM` (řazeno podle `change` = jmění − snímek 1. dne měsíce, pro portfolio bez něj nejbližší dřívější snímek, jinak startovní rozpočet). Stejné hodnoty mají stejné pořadí (`RANK()`). `MonthCloseJob` (1. den 01:00) uzavře předchozí měsíc podle snímku 1. dne následujícího měsíce (= konec měsíce) a řádky označí `closed`; uzavřené období se už nepřepisuje, vítěz = `rank` 1. Endpoint `/leaderboard` je veřejný, stránkuje `?offset=&limit=`, výchozí sezóna = běžící (jinak poslední), vrací zobrazované jméno | plán popisuje jen úlohy; konec měsíce potřeboval jednoznačnou definici |
 | 2026-10-30 | F3 | Stažení z trhu: `MarketService.delist` (jediné místo pro admina i neaktivitu) po označení listingu vyplatí všechny otevřené loty za poslední cenu: obchod `FORCED_SELL` bez poplatku + záznam `DELIST_PAYOUT` (long +cena, short −cena, hotovost smí kvůli shortu jít do mínusu) + `cash_cached`; replay (`record = false`) nevyplácí. Zámky mají jednotné pořadí listing → portfolio: obchod si před zámkem portfolia vezme `FOR SHARE` na řádek listingu, stažení listing mění (`UPDATE`, čeká na rozběhnuté obchody a pozdější obchody čekají na něj a vidí `DELISTED`) a pak zamkne portfolia držitelů podle id; tak se nemůže otevřít nový lot na staženém zápasníkovi ani zablokovat souběh (test: 8 nákupů proti stažení). Noční `LedgerCheck` (02:30 UTC, advisory lock) porovná `cash_cached` se součtem ledgeru, rozdíly loguje jako ERROR a nic neopravuje; stejnou kontrolu vrací `GET /api/v1/admin/ledger/check` (seznam rozdílů, prázdný = v pořádku) | plán: „vyplatí za poslední cenu“, „noční kontrola shody“ |
 | 2026-10-30 | F3 | Poptávka: `DemandJob` každou celou hodinu (UTC, advisory lock jako ostatní úlohy) spočítá pro každý nestažený listing čisté nákupy za posledních 7 dní (`BUY`, `SHORT_CLOSE` = +1; `SELL`, `SHORT_OPEN` = −1; `FORCED_SELL` se nepočítá) a faktor `1 + demandSensitivity × čisté nákupy / aktivní portfolia`, omezený na `1 ± demandCap` (`Pricing.demandFactor`). Aktivní portfolio = portfolio v sezóně, která teď běží. Zápasník bez obchodů v okně se vrací na 1; faktor se ukládá na 6 desetinných míst a bez změny se nezapisuje nic (opakovaný běh = žádná změna). Změna je `price_event` `DEMAND` (poznámka nese počty). Nové pole `RuleSet.demandSensitivity` = 0,5 (+ `V012` doplní `rule_set` v2) — hodnota je odhad k doladění v betě: polovina hráčů, co čistě nakoupí, = +25 % | plán říká „převede na faktor“, ale žádný vzorec ani konstantu; `sim.py` poptávku nezná |
 | 2026-10-30 | F3 | Obchodování: jedna transakce na obchod, která nejdřív zamkne řádek portfolia (`SELECT … FOR UPDATE`); souběžné požadavky téhož portfolia se tak řadí za sebe (test: 10 vláken, 3 projdou, hotovost nikdy záporná). Pořadí: idempotence → ocenění → kontroly → zápis (`trade`, ledger `TRADE`/`FEE`/`EXTRA_FEE`, lot, týdenní čítač, `cash_cached`). Kontroly (kvóta vrací všechny, obchod odmítne první): sezóna běží (`SEASON_NOT_STARTED`/`SEASON_ENDED`), zápasník je `ACTIVE`/`IPO` a není sloučený (`FIGHTER_NOT_TRADABLE`), uzávěrka (`TRADING_LOCKED`, 409), limity soupisky z `RosterRules` (kódy = jména `RosterViolation`), hotovost (`INSUFFICIENT_CASH`); ostatní 422, neznámý zápasník 404 `FIGHTER_NOT_FOUND`. Uzávěrka: zápasník má otevřený zápas (`ANNOUNCED`/`CONFIRMED`/`NEEDS_REVIEW`), jehož event má `COALESCE(weigh_in_at, starts_at) <= now`; trvá do `COMPLETED`/`CANCELLED`, platí pro všechny druhy obchodů (i prodej a uzavření shortu). Přirážka od 3. nákupu v týdnu (týden = pondělí 00:00 UTC), první herní týden sezóny (týden s `starts_at`) je bez ní; počítají se jen nákupy `BUY`, uzavření shortu ne. Short: otevření přidá `cena − poplatek`, uzavření stojí `cena + poplatek` (a vyžaduje hotovost), jako `sim.py`. `idempotencyKey` (max. 100 znaků): stejný klíč vrátí uložený obchod (`replayed`), jiný druh/zápasník = 422 `IDEMPOTENCY_KEY_REUSED`. Kurz pro short a soupeře pro „oba soupeři“ bere z nejbližšího otevřeného zápasu zápasníka (poslední `odds_snapshot`) | plán popisuje pravidla, ne pořadí a kódy chyb |
@@ -159,13 +173,10 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F3 je hotová (po merge řetězu PR F3.1–F3.8). Další je **F4 – Dividendy, kapitán, žebříčky**: rozepsat úkoly F4.1…
-do tohoto souboru (podle [`plan.md`](plan.md#fáze-4--dividendy-kapitán-a-žebříčky-2-týdny)) a začít schématem
-(`captain_pick`, `dividend_payout`, `net_worth_snapshot`, `leaderboard_entry`). Pro výplatu využij hotové:
-loty s `opened_at` (nárok `opened_at < bout.announced_at`), `ledger_entry` `DIVIDEND`/`SHORT_SETTLE`/`REVERSAL`
-(+ `reverses_id`, unikátní), `rules.Dividend`, a zámky portfolia (`SELECT … FOR UPDATE`, pořadí listing → portfolio,
-viz rozhodnutí o stažení z trhu). Každý úkol = vlastní větev a PR (`f4/f4.x-<slug>`, base = větev předchozího
-nemergovaného PR, jinak `main`).
+F4 je hotová (po merge PR F4 stackovaného na F3.8; F3 řetěz merguj popořadě od F3.1). Další je
+**F5 – Automatická data**: rozepsat úkoly F5.1… do tohoto souboru (podle [`plan.md`](plan.md)) a začít
+prvním zdrojem dat (UFC / kurzy). Každý úkol = vlastní větev a PR (`f5/f5.x-<slug>`, base = větev předchozího
+nemergovaného PR, jinak `main`). Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě.
 
 Před startem uzavřené bety: po merge F2 a F3 spusť `POST /api/v1/admin/market/replay` od data importu historie
 (vytvoří listingy a ceny), založ sezónu `POST /api/v1/admin/seasons` a ověř `GET /api/v1/admin/ledger/check`.

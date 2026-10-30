@@ -11,10 +11,27 @@ class TradingFixture(
 ) {
     fun clean() {
         exec(
-            "DELETE FROM weekly_buy_counter; DELETE FROM ledger_entry; DELETE FROM position_lot; DELETE FROM trade; " +
+            "DELETE FROM leaderboard_entry; DELETE FROM net_worth_snapshot; DELETE FROM dividend_payout; " +
+                "DELETE FROM captain_pick; DELETE FROM weekly_buy_counter; DELETE FROM ledger_entry; " +
+                "DELETE FROM position_lot; DELETE FROM trade; " +
                 "DELETE FROM portfolio; DELETE FROM season; DELETE FROM app_user; DELETE FROM odds_snapshot; " +
                 "DELETE FROM price_event; DELETE FROM bout; DELETE FROM event; DELETE FROM market_listing; " +
                 "DELETE FROM fighter_external_id; DELETE FROM fighter",
+        )
+    }
+
+    /** [clean] plus the sport data a bout result touches (for tests that go through the ingest). */
+    fun cleanAll() {
+        exec(
+            "DELETE FROM leaderboard_entry; DELETE FROM net_worth_snapshot; DELETE FROM dividend_payout; " +
+                "DELETE FROM captain_pick; DELETE FROM weekly_buy_counter; DELETE FROM ledger_entry; " +
+                "DELETE FROM position_lot; DELETE FROM trade; DELETE FROM portfolio; DELETE FROM season; " +
+                "DELETE FROM app_user; DELETE FROM bout_price_bump; DELETE FROM bout_price_drift; " +
+                "DELETE FROM price_event; DELETE FROM price_daily; DELETE FROM odds_snapshot; " +
+                "DELETE FROM bout_bonus; DELETE FROM weight_miss; DELETE FROM bout_result; DELETE FROM elo_rating; " +
+                "DELETE FROM ranking_snapshot; DELETE FROM bout; DELETE FROM event; DELETE FROM market_listing; " +
+                "DELETE FROM fighter_external_id; DELETE FROM fighter; DELETE FROM review_item; " +
+                "DELETE FROM ingest_event",
         )
     }
 
