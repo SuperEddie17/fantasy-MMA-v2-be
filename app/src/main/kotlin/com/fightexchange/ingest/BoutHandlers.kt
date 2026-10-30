@@ -187,11 +187,12 @@ class OddsSnapshotHandler(
     }
 }
 
-/** Stores the result as a new version of `bout_result`; Elo follows in F1.5. */
+/** Stores the result as a new version of `bout_result` and recalculates Elo from this bout onward. */
 @Singleton
 class BoutResultHandler(
     private val support: IngestSupport,
     private val policy: ConfirmationPolicy,
+    private val elo: EloService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_RESULT
 
@@ -238,6 +239,7 @@ class BoutResultHandler(
             ps.setLong(1, bout.id)
             ps.executeUpdate()
         }
+        elo.recalculateFrom(conn, bout.id)
         return HandlerOutcome.APPLIED
     }
 

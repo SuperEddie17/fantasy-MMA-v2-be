@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1–F1.4 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Stav fáze:** rozpracováno (F1.1–F1.5 hotovo; F0 hotová, PR #2 merged 2026-10-29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -56,7 +56,7 @@ Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 - [x] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor` (`IngestCoreTest`)
 - [x] F1.3 `FighterMatcher` (external id → normalizované jméno + divize; nejistá shoda vrací `Uncertain`, `review_item` zakládá handler v F1.4), `FighterMatcherTest`
 - [x] F1.4 Handlery všech 8 typů událostí (`MasterDataHandlers`, `BoutHandlers`), `ConfirmationPolicy` (`ingest.confirmation.required-types`), Flyway `V004__bout_external_id.sql`, `IngestHandlersTest`
-- [ ] F1.5 Elo po `bout.result`, oprava výsledku = nová verze + přepočet od zápasu dál
+- [x] F1.5 Elo po `bout.result` (`EloService.recalculateFrom`), oprava výsledku = nová verze + přepočet od zápasu dál, `EloRecalculationTest`
 - [ ] F1.6 Veřejné čtecí endpointy (organizace, zápasníci, eventy)
 - [ ] F1.7 Admin API + statický admin účet (Micronaut Security basic → JWT) + fronta ke kontrole
 - [ ] F1.8 Hromadné zadání výsledků karty, ruční kurzy
@@ -74,6 +74,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | F1 | `EloService.recalculateFrom(boutId)` přepočítá zápas a všechny pozdější zápasy, kterých se dotkne změna (zasažení zápasníci se šíří přes soupeře); pořadí = (`event.starts_at`, `bout.id`), `rated_at` = začátek eventu; „konec“ = `KO_TKO`/`SUB`; remíza skóre 0,5; no contest řádek `elo_rating` nezapisuje (a případný starý smaže). Volá se z `BoutResultHandler.apply` ve stejné transakci | opravený výsledek mění Elo i následných soupeřů; shoda se `sim.py` (finish jen KO/SUB) |
 | 2026-10-30 | F1 | Zápas se adresuje dvojicí (`source`, `external_id`) (V004: `bout.source`, `bout.external_id`, `bout.withdrawn_fighter_id`); eventy z `ADMIN` se nepotvrzují, ostatní zdroje čekají u typů v `ingest.confirmation.required-types` (výchozí `bout.result`, `bout.cancelled`) → `review_item` `RESULT_CONFIRM`/`CANCELLATION`. `BoutResultHandler.apply`/`BoutCancelledHandler.apply` jsou veřejné pro potvrzení v F1.7 | plán nemá sloupec pro externí id zápasu; admin je sám potvrzovatel |
 | 2026-10-30 | F1 | Nejistý/neznámý zápasník v `bout.*` → `review_item` `FIGHTER_MATCH`, nic se nezapíše; neznámý event/zápas = `REJECTED`; `ranking.snapshot` nespárované zápasníky přeskočí (log) | hromadná data nemají blokovat; ostatní chyby jsou data zdroje |
 | 2026-10-30 | F1 | `bout.result` zapíše novou verzi `bout_result` (předchozí `is_current=false`), bonusy a přetížení se nahradí, zápas → `COMPLETED`; Elo zatím ne (F1.5) | oprava výsledku = nová verze dle plánu |
@@ -104,8 +105,8 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.5: Elo po `bout.result` (`rules.Elo`, zápis do `elo_rating` pro oba zápasníky), oprava výsledku = přepočet Elo
-od toho zápasu dál (`BoutResultHandler.apply` je místo napojení). Pak F1.6 veřejné čtecí endpointy.
+F1.6: veřejné čtecí endpointy (`/api/v1/organizations`, `/fighters`, `/fighters/{id}` s Elo a posledními zápasy,
+`/events`, `/events/{id}`). Pak F1.7 admin API a fronta ke kontrole.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
 uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
