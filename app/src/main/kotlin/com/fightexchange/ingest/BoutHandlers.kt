@@ -3,6 +3,7 @@ package com.fightexchange.ingest
 import com.fightexchange.market.MarketService
 import com.fightexchange.market.PriceCause
 import com.fightexchange.market.PriceEventKind
+import com.fightexchange.payout.PayoutService
 import jakarta.inject.Singleton
 import java.sql.Connection
 import java.sql.Timestamp
@@ -233,6 +234,7 @@ class BoutResultHandler(
     private val policy: ConfirmationPolicy,
     private val elo: EloService,
     private val market: MarketService,
+    private val payouts: PayoutService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_RESULT
 
@@ -279,6 +281,8 @@ class BoutResultHandler(
             ps.setLong(1, bout.id)
             ps.executeUpdate()
         }
+        // dividends use the price before the result moves it
+        payouts.settle(conn, bout.id, support.now())
         elo.recalculateFrom(conn, bout.id)
         market.settleBout(conn, bout.id, priceCause(support.now(), event, bout.id, PriceEventKind.RESULT_RESET))
         return HandlerOutcome.APPLIED
