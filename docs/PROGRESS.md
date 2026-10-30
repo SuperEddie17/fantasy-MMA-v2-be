@@ -8,8 +8,8 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F1 – Sportovní data a admin
-- **Stav fáze:** rozpracováno (F1.1 hotovo; F0 hotová, PR #2 merged 2026-10-29)
-- **Poslední aktualizace:** 2026-10-29
+- **Stav fáze:** rozpracováno (F1.1, F1.2 hotovo; F0 hotová, PR #2 merged 2026-10-29)
+- **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
 
@@ -53,7 +53,7 @@ Hotovo, když: admin zadá kompletní event Oktagonu (karta, výsledky, bonusy) 
 Elo se přepočítá a import historie UFC dá stejné Elo jako simulace.
 
 - [x] F1.1 Flyway `V003__sport_data.sql`: všechny sportovní tabulky + seed 5 organizací, `SportSchemaTest`
-- [ ] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor`
+- [x] F1.2 Ingest jádro: `IngestService.submit` (idempotence), sealed třídy payloadů, `IngestProcessor` (`IngestCoreTest`)
 - [ ] F1.3 `FighterMatcher` (external id → normalizované jméno + divize → `review_item`)
 - [ ] F1.4 Zpracování typů událostí (`fighter.upsert` … `ranking.snapshot`), konfigurace potvrzování adminem
 - [ ] F1.5 Elo po `bout.result`, oprava výsledku = nová verze + přepočet od zápasu dál
@@ -74,6 +74,9 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-10-30 | proces | Všechny změny (i dokumentace) jdou do `master` jen přes PR po zelené CI, nikdy přímým pushem; PR otevírá agent jen na žádost, merguje uživatel | pokyn uživatele, zapsáno do `CLAUDE.md` |
+| 2026-10-30 | F1 | Ingest přes JDBC a `TransactionOperations<Connection>` (ne Micronaut Data repozitáře); pool Micronaut Data je `autoCommit=false`, transakce proto řídí jen `tx.executeWrite/Read`; testy ingestu jsou `@MicronautTest(transactional = false)` | jedna transakce na událost s rollbackem při výjimce handleru; přímý `DataSource.connection` mimo transakci nefunguje |
+| 2026-10-30 | F1 | `IngestPayload` je `sealed interface` s `@JsonTypeInfo` (`type` = `fighter.upsert` …) a `schemaVersion`; zpracování typů je přes rozhraní `IngestHandler` (jeden bean na typ, F1.4); událost bez handleru zůstane `NEW`, chyba handleru = `REJECTED` jen pro ni | rozšiřitelné bez zásahu do procesoru |
 | 2026-10-29 | F1 | Výčty v DB jako `text` + `CHECK`; `bout.announced_at` je `GENERATED ... STORED` (`LEAST` ze tří časů); `bout_result.outcome` (WIN/DRAW/NO_CONTEST) navíc, vítěz jen u WIN; `ingest_event` unikátní jen mimo `DUPLICATE` (duplicity se ukládají); `fighter.normalized_name` a `merged_into_id` navíc (párování, sloučení); `fighter.division` nullable (ne všude známá) | plán popisuje sloupce jen přibližně; takhle jdou invarianty hlídat v DB |
 | 2026-10-29 | F0 | Verze: Kotlin 2.0.21, KSP 2.0.21-1.0.28, Micronaut platforma 4.10.22 (ne 5.x), Gradle 8.14.3, detekt 1.23.8, ktlint plugin 13.1.0, Testcontainers 1.21.4 | plán říká Micronaut 4; Kotlin 2.0.21 je verze, na které běží detekt 1.23 |
 | 2026-10-29 | F0 | Balíček `com.fightexchange` (`…rules`, aplikace v `com.fightexchange`) | – |
@@ -96,12 +99,13 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F1.2: ingest jádro v `app/.../ingest/` – `IngestService.submit` (uložení do `ingest_event`, duplicita
-`source`+`external_key` → `DUPLICATE`), sealed třídy payloadů s verzí schématu a `IngestProcessor`
-(NEW události v pořadí přijetí, každá v jedné transakci). Pak F1.3 `FighterMatcher`.
+F1.3: `FighterMatcher` v `app/.../ingest/` – nejdřív `fighter_external_id`, pak `normalized_name`
+(bez diakritiky, malá písmena, přehozené pořadí jmen) + divize; nejistá shoda → `review_item`
+(`FIGHTER_MATCH`). Pak F1.4 handlery pro jednotlivé typy událostí (`IngestHandler`).
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
-uživatel `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test`.
+uživatel a heslo `fightexchange`); testy s `TEST_DB_URL=jdbc:postgresql://localhost:5432/fightexchange_test TEST_DB_PASSWORD=fightexchange`.
+Při chybě „Number of loaded files in snapshots differs“ pomůže `rm -rf app/build/kspCaches`.
 
 ## Otevřené otázky
 
