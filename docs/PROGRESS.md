@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F3 – Hráči, portfolio, obchodování
-- **Stav fáze:** rozpracováno (F2 je v `main`; F3.1 schéma v review, další úkoly stackované na něm)
+- **Stav fáze:** hotovo, čeká na merge (F3.1–F3.8 jako řetěz stackovaných PR #20–#26 + F3.8; merguj popořadě od F3.1)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -18,7 +18,7 @@
 | F0 | Základy a přenos simulace | ✅ hotovo | #2 |
 | F1 | Sportovní data a admin | ✅ hotovo | #8–#12 |
 | F2 | Trh a ceny | ✅ hotovo | #14–#19 |
-| F3 | Hráči, portfolio, obchodování | 🟡 rozpracováno | F3.1 |
+| F3 | Hráči, portfolio, obchodování | 🔵 v review (stack F3.1–F3.8) | #20–#26, F3.8 |
 | F4 | Dividendy, kapitán, žebříčky | ⚪ nezačato | – |
 | F5 | Automatická data | ⚪ nezačato | – |
 | F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
@@ -90,7 +90,7 @@ a obchody v uzávěrce se odmítnou.
 - [x] F3.5 Endpointy `POST /portfolios/{id}/quote`, `POST /portfolios/{id}/trades` (201 nový obchod, 200 opakovaný `idempotencyKey`), chyby jako `application/problem+json` (`PortfolioController`), `TradeApiTest`
 - [x] F3.6 `DemandJob` (hodinově, faktor poptávky → `price_event` `DEMAND`): `DemandService`, `DemandJob`, `MarketService.setDemand`, `Pricing.demandFactor`, Flyway `V012`, `DemandJobTest`
 - [x] F3.7 Stažení z trhu: výplata všech lotů (`FORCED_SELL`, `DELIST_PAYOUT`), noční kontrola ledgeru proti `cash_cached` (`DelistPayout`, `LedgerCheck`, `GET /admin/ledger/check`), `DelistPayoutTest`
-- [ ] F3.8 Souběh a přejímka: souběžné nákupy, 10–20 hráčů přes API
+- [x] F3.8 Souběh a přejímka: souběžné nákupy na jedno portfolio (`TradingServiceTest`), 15 hráčů najednou přes API + kontrola ledgeru + uzávěrka (`BetaAcceptanceTest`)
 
 ## F4–F6
 
@@ -159,10 +159,16 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F3 běží (viz seznam úkolů výše). Každý úkol = vlastní větev a PR (`f3/f3.x-<slug>`, base = větev předchozího
+F3 je hotová (po merge řetězu PR F3.1–F3.8). Další je **F4 – Dividendy, kapitán, žebříčky**: rozepsat úkoly F4.1…
+do tohoto souboru (podle [`plan.md`](plan.md#fáze-4--dividendy-kapitán-a-žebříčky-2-týdny)) a začít schématem
+(`captain_pick`, `dividend_payout`, `net_worth_snapshot`, `leaderboard_entry`). Pro výplatu využij hotové:
+loty s `opened_at` (nárok `opened_at < bout.announced_at`), `ledger_entry` `DIVIDEND`/`SHORT_SETTLE`/`REVERSAL`
+(+ `reverses_id`, unikátní), `rules.Dividend`, a zámky portfolia (`SELECT … FOR UPDATE`, pořadí listing → portfolio,
+viz rozhodnutí o stažení z trhu). Každý úkol = vlastní větev a PR (`f4/f4.x-<slug>`, base = větev předchozího
 nemergovaného PR, jinak `main`).
-Po merge F2 spusť v ostrém provozu po importu historie `POST /api/v1/admin/market/replay` od data importu
-(vytvoří listingy a ceny z Elo historie).
+
+Před startem uzavřené bety: po merge F2 a F3 spusť `POST /api/v1/admin/market/replay` od data importu historie
+(vytvoří listingy a ceny), založ sezónu `POST /api/v1/admin/seasons` a ověř `GET /api/v1/admin/ledger/check`.
 Ověření kritéria F1 „admin zadá event za ≤ 15 minut“ zůstává na uživateli.
 
 Poznámka: v sandboxu běží Postgres 16 lokálně (`pg_ctlcluster 16 main start`, DB `fightexchange_test`,
