@@ -10,11 +10,21 @@ micronaut:
 
   security:
     authentication: bearer
-    # Public API stays open; everything under /admin needs a JWT from POST /login with ROLE_ADMIN.
+    # Reading is public; /admin needs a JWT from POST /login with ROLE_ADMIN; the player's own data
+    # (profile, portfolios, trades) needs a JWT from POST /api/v1/auth/login.
     intercept-url-map:
       - pattern: /api/v1/admin/**
         access:
           - ROLE_ADMIN
+      - pattern: /api/v1/me
+        access:
+          - isAuthenticated()
+      - pattern: /api/v1/portfolios
+        access:
+          - isAuthenticated()
+      - pattern: /api/v1/portfolios/**
+        access:
+          - isAuthenticated()
       - pattern: /**
         access:
           - isAnonymous()
@@ -26,7 +36,7 @@ micronaut:
               # Without JWT_SECRET a random secret is used (tokens die with the process).
               secret: ${JWT_SECRET:`${random.uuid}${random.uuid}`}
 
-# Single static admin account (full accounts come in F3). Login is refused while the password is blank.
+# Single static admin account for /login (player accounts live in app_user, see AuthController). Login is refused while the password is blank.
 admin:
   username: ${ADMIN_USER:admin}
   password: ${ADMIN_PASSWORD:}
