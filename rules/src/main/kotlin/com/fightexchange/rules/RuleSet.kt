@@ -23,6 +23,12 @@ data class RuleSet(
     val cancelDropMin: Double = 0.05,
     val cancelDropMax: Double = 0.10,
     val oddsDrift: Double = 0.05,
+    /** Price change per rank gained or lost between two ranking snapshots (0.005 = 0.5 %). */
+    val rankingStep: Double = 0.005,
+    /** One snapshot moves a price by at most this much. */
+    val rankingCap: Double = 0.05,
+    /** Rank assumed for a fighter missing from a ranking (entering or leaving the top). */
+    val rankingUnranked: Int = 16,
     // Inactivity
     val inactiveWeeks: Double = 26.0,
     val decay: Double = 0.01,

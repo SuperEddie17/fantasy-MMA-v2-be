@@ -48,6 +48,15 @@ object Pricing {
         return 1.0 + rules.oddsDrift * edge
     }
 
+    /**
+     * Price factor for a ranking change: 1 + rankingStep per rank gained (a lower number is better),
+     * clamped to 1 ± rankingCap. A missing rank counts as [RuleSet.rankingUnranked].
+     */
+    fun rankingFactor(previousRank: Int?, newRank: Int?, rules: RuleSet = RuleSet.V2): Double {
+        val gained = (previousRank ?: rules.rankingUnranked) - (newRank ?: rules.rankingUnranked)
+        return 1.0 + (rules.rankingStep * gained).coerceIn(-rules.rankingCap, rules.rankingCap)
+    }
+
     /** Applies the demand factor, capped to 1 ± demandCap. */
     fun applyDemand(price: Money, factor: Double, rules: RuleSet = RuleSet.V2): Money =
         price * factor.coerceIn(1.0 - rules.demandCap, 1.0 + rules.demandCap)

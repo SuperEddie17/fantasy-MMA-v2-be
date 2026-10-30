@@ -118,6 +118,7 @@ class BoutChangedHandler(
                 ps.executeUpdate()
             }
         market.syncBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.ANNOUNCED))
+        market.driftBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.ODDS_DRIFT))
         return HandlerOutcome.APPLIED
     }
 
@@ -193,6 +194,7 @@ private fun priceCause(
 @Singleton
 class OddsSnapshotHandler(
     private val support: IngestSupport,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.ODDS_SNAPSHOT
 
@@ -216,6 +218,7 @@ class OddsSnapshotHandler(
                 ps.setBoolean(6, payload.closing)
                 ps.executeUpdate()
             }
+        market.driftBout(conn, bout.id, PriceCause(PriceEventKind.ODDS_DRIFT, payload.takenAt, bout.id, event.id))
         return HandlerOutcome.APPLIED
     }
 }
@@ -226,6 +229,7 @@ class BoutResultHandler(
     private val support: IngestSupport,
     private val policy: ConfirmationPolicy,
     private val elo: EloService,
+    private val market: MarketService,
 ) : IngestHandler {
     override val type = IngestEventType.BOUT_RESULT
 
@@ -273,6 +277,7 @@ class BoutResultHandler(
             ps.executeUpdate()
         }
         elo.recalculateFrom(conn, bout.id)
+        market.settleBout(conn, bout.id, priceCause(event, bout.id, PriceEventKind.RESULT_RESET))
         return HandlerOutcome.APPLIED
     }
 
