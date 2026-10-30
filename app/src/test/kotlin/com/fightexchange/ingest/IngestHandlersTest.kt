@@ -19,6 +19,8 @@ class IngestHandlersTest : PostgresTest() {
 
     @Inject lateinit var tx: TransactionOperations<Connection>
 
+    @Inject lateinit var missingOdds: MissingOddsJob
+
     private val starts = Instant.parse("2026-12-05T18:00:00Z")
     private var seq = 0
 
@@ -164,6 +166,47 @@ class IngestHandlersTest : PostgresTest() {
         val bad = send(IngestPayload.OddsSnapshot("b1", starts, 1.0, 2.6))
         assertEquals("1", scalar("SELECT count(*) FROM odds_snapshot WHERE is_closing"))
         assertEquals("REJECTED", status(bad))
+    }
+
+    @Test
+    fun `first odds confirm an announced bout`() {
+        card()
+        assertEquals("ANNOUNCED", scalar("SELECT status FROM bout"))
+        send(IngestPayload.OddsSnapshot("b1", starts.minusSeconds(3_600), 1.5, 2.6))
+        assertEquals("CONFIRMED", scalar("SELECT status FROM bout"))
+    }
+
+    @Test
+    fun `odds for an unknown bout open a review item and change nothing`() {
+        card()
+        val priceEvents = scalar("SELECT count(*) FROM price_event")
+        val id = send(IngestPayload.OddsSnapshot("nope", starts.minusSeconds(3_600), 1.5, 2.6))
+        assertEquals("NEEDS_REVIEW", status(id))
+        assertEquals("UNKNOWN_BOUT", scalar("SELECT reason FROM review_item WHERE ingest_event_id = $id"))
+        assertEquals("0", scalar("SELECT count(*) FROM odds_snapshot"))
+        assertEquals("ANNOUNCED", scalar("SELECT status FROM bout"))
+        assertEquals(priceEvents, scalar("SELECT count(*) FROM price_event"))
+    }
+
+    @Test
+    fun `bout without odds for 48 hours needs review and new odds confirm it again`() {
+        card()
+        send(IngestPayload.OddsSnapshot("b1", starts.minus(java.time.Duration.ofDays(10)), 1.5, 2.6))
+        val job = missingOdds
+        val old = starts.minus(java.time.Duration.ofDays(10))
+        assertEquals(0, job.flagMissing(old.plus(java.time.Duration.ofHours(47))))
+        assertEquals("CONFIRMED", scalar("SELECT status FROM bout"))
+        assertEquals(1, job.flagMissing(old.plus(java.time.Duration.ofHours(48))))
+        assertEquals("NEEDS_REVIEW", scalar("SELECT status FROM bout"))
+        send(IngestPayload.OddsSnapshot("b1", old.plus(java.time.Duration.ofHours(60)), 1.6, 2.4))
+        assertEquals("CONFIRMED", scalar("SELECT status FROM bout"))
+    }
+
+    @Test
+    fun `bout that never had odds is not flagged`() {
+        card()
+        assertEquals(0, missingOdds.flagMissing(starts.minus(java.time.Duration.ofDays(30))))
+        assertEquals("ANNOUNCED", scalar("SELECT status FROM bout"))
     }
 
     private fun result(winner: String = "f1") =

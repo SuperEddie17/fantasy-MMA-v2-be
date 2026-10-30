@@ -208,7 +208,12 @@ class OddsSnapshotHandler(
         payload: IngestPayload,
     ): HandlerOutcome {
         payload as IngestPayload.OddsSnapshot
-        val bout = support.boutRow(conn, payload.boutSource ?: event.source, payload.boutExternalId)
+        // odds for a bout the card feed never announced say nothing about prices until an admin looks at them
+        val bout = support.findBout(conn, payload.boutSource ?: event.source, payload.boutExternalId)
+        if (bout == null) {
+            support.openReview(conn, event.id, ReviewReason.UNKNOWN_BOUT)
+            return HandlerOutcome.NEEDS_REVIEW
+        }
         conn
             .prepareStatement(
                 "INSERT INTO odds_snapshot (bout_id, source, taken_at, odds_a, odds_b, is_closing) " +
@@ -222,8 +227,21 @@ class OddsSnapshotHandler(
                 ps.setBoolean(6, payload.closing)
                 ps.executeUpdate()
             }
+        confirm(conn, bout)
         market.driftBout(conn, bout.id, PriceCause(PriceEventKind.ODDS_DRIFT, payload.takenAt, bout.id, event.id))
         return HandlerOutcome.APPLIED
+    }
+
+    /** The first odds confirm an announced bout; odds returning after a gap clear its `NEEDS_REVIEW`. */
+    private fun confirm(
+        conn: Connection,
+        bout: BoutRow,
+    ) {
+        if (bout.status != "ANNOUNCED" && bout.status != "NEEDS_REVIEW") return
+        conn.prepareStatement("UPDATE bout SET status = 'CONFIRMED' WHERE id = ?").use { ps ->
+            ps.setLong(1, bout.id)
+            ps.executeUpdate()
+        }
     }
 }
 
