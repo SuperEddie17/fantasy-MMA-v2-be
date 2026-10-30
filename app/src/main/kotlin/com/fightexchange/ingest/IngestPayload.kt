@@ -51,12 +51,13 @@ sealed interface IngestPayload {
         override val eventType get() = IngestEventType.EVENT_UPSERT
     }
 
-    /** A fighter reference as given by a source: external id and/or name. */
+    /** A fighter reference as given by a source: external id and/or name; admins may give our own [id]. */
     @Serdeable
     data class FighterRef(
         val externalId: String? = null,
         val name: String? = null,
         val division: String? = null,
+        val id: Long? = null,
     )
 
     @Serdeable
@@ -67,6 +68,7 @@ sealed interface IngestPayload {
         val fighterB: FighterRef,
         val boutType: String = "NORMAL",
         val announcedAt: Instant? = null,
+        val eventSource: String? = null,
         override val schemaVersion: Int = PAYLOAD_SCHEMA_VERSION,
     ) : IngestPayload {
         override val eventType get() = IngestEventType.BOUT_ANNOUNCED
@@ -78,6 +80,8 @@ sealed interface IngestPayload {
         val fighterA: FighterRef? = null,
         val fighterB: FighterRef? = null,
         val boutType: String? = null,
+        val announcedAt: Instant? = null,
+        val boutSource: String? = null,
         override val schemaVersion: Int = PAYLOAD_SCHEMA_VERSION,
     ) : IngestPayload {
         override val eventType get() = IngestEventType.BOUT_CHANGED
@@ -88,6 +92,7 @@ sealed interface IngestPayload {
         val boutExternalId: String,
         val reason: String? = null,
         val withdrawnFighter: FighterRef? = null,
+        val boutSource: String? = null,
         override val schemaVersion: Int = PAYLOAD_SCHEMA_VERSION,
     ) : IngestPayload {
         override val eventType get() = IngestEventType.BOUT_CANCELLED
@@ -100,6 +105,7 @@ sealed interface IngestPayload {
         val oddsA: Double,
         val oddsB: Double,
         val closing: Boolean = false,
+        val boutSource: String? = null,
         override val schemaVersion: Int = PAYLOAD_SCHEMA_VERSION,
     ) : IngestPayload {
         override val eventType get() = IngestEventType.ODDS_SNAPSHOT
@@ -122,6 +128,7 @@ sealed interface IngestPayload {
         val titleWon: Boolean = false,
         val bonuses: List<Bonus> = emptyList(),
         val weightMisses: List<FighterRef> = emptyList(),
+        val boutSource: String? = null,
         override val schemaVersion: Int = PAYLOAD_SCHEMA_VERSION,
     ) : IngestPayload {
         override val eventType get() = IngestEventType.BOUT_RESULT
