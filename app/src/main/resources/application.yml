@@ -66,6 +66,9 @@ ingest:
   ufcalendar:
     # The adapter exists only with a key (https://www.ufcalendar.com/account/api); the free plan has 1,000 requests a month.
     api-key: ${UFCALENDAR_API_KEY:}
+    # Webhook endpoint exists only with a secret (Pro plan); deliveries older than the tolerance are refused.
+    webhook-secret: ${UFCALENDAR_WEBHOOK_SECRET:}
+    webhook-tolerance-seconds: 300
     base-url: ${UFCALENDAR_BASE_URL:`https://api.ufcalendar.com`}
     orgs: ufc,pfl,oktagon
     days-ahead: 90
