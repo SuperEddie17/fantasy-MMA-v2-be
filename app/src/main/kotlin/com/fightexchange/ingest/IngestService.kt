@@ -52,6 +52,22 @@ class IngestService(
         }
     }
 
+    /** True when an original (non-duplicate) event with this key is stored; lets feeds skip unchanged data. */
+    fun exists(
+        source: String,
+        externalKey: String,
+    ): Boolean =
+        tx.executeRead { status ->
+            status.connection
+                .prepareStatement(
+                    "SELECT 1 FROM ingest_event WHERE source = ? AND external_key = ? AND status <> 'DUPLICATE'",
+                ).use { ps ->
+                    ps.setString(1, source)
+                    ps.setString(2, externalKey)
+                    ps.executeQuery().use { it.next() }
+                }
+        }
+
     private fun insert(
         conn: Connection,
         source: String,
