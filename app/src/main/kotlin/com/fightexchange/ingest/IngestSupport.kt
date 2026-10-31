@@ -70,7 +70,14 @@ class IngestSupport(
         conn: Connection,
         source: String,
         externalId: String,
-    ): BoutRow =
+    ): BoutRow = findBout(conn, source, externalId) ?: error("Unknown bout: $externalId")
+
+    /** Like [boutRow], but `null` for a bout we have never seen. */
+    fun findBout(
+        conn: Connection,
+        source: String,
+        externalId: String,
+    ): BoutRow? =
         conn
             .prepareStatement(
                 "SELECT b.id, e.organization_id, b.fighter_a_id, b.fighter_b_id, b.status FROM bout b " +
@@ -82,7 +89,7 @@ class IngestSupport(
                     if (rs.next()) {
                         BoutRow(rs.getLong(1), rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getString(5))
                     } else {
-                        error("Unknown bout: $externalId")
+                        null
                     }
                 }
             }

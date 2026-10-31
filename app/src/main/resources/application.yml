@@ -63,6 +63,13 @@ endpoints:
     details-visible: ANONYMOUS
 
 ingest:
+  ufcalendar:
+    # The adapter exists only with a key (https://www.ufcalendar.com/account/api); the free plan has 1,000 requests a month.
+    api-key: ${UFCALENDAR_API_KEY:}
+    base-url: ${UFCALENDAR_BASE_URL:`https://api.ufcalendar.com`}
+    orgs: ufc,pfl,oktagon
+    days-ahead: 90
+    days-back: 7
   confirmation:
     # Event types from non-admin sources that wait for an admin decision (source ADMIN is trusted).
     required-types:
