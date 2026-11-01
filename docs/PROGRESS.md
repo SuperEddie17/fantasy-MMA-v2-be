@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F5 – Automatická data
-- **Stav fáze:** rozpracováno (F5.1–F5.4 hotovo). F3.2–F4 je v `main` (PR #29)
+- **Stav fáze:** rozpracováno (F5.1–F5.5 hotovo). F3.2–F4 je v `main` (PR #29)
 - **Poslední aktualizace:** 2026-10-30
 
 ## Přehled fází
@@ -20,7 +20,7 @@
 | F2 | Trh a ceny | ✅ hotovo | #14–#19 |
 | F3 | Hráči, portfolio, obchodování | 🔵 F3.1 v `main`, F3.2–F3.8 v souhrnném PR | #20–#27, #29 |
 | F4 | Dividendy, kapitán, žebříčky | 🔵 v souhrnném PR | #28, #29 |
-| F5 | Automatická data | 🟡 rozpracováno | F5.1–F5.4 |
+| F5 | Automatická data | 🟡 rozpracováno | F5.1–F5.5 |
 | F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
 
 Legenda: ⚪ nezačato · 🟡 rozpracováno · 🔵 v review · ✅ hotovo
@@ -117,11 +117,11 @@ a event KSW se zadá ručně do 15 minut.
 - [x] F5.2 Logika ohlášení: první kurz potvrdí zápas (`CONFIRMED`), kurz k neznámému zápasu → `review_item` `UNKNOWN_BOUT`, kurzy chybí ≥ 48 h → `NEEDS_REVIEW` (`OddsSnapshotHandler`, `IngestSupport.findBout`, `MissingOddsJob`, testy v `IngestHandlersTest`)
 - [x] F5.3 `UfcalendarAdapter`: mapování odpovědí na události, stažení (90 dní dopředu, 7 zpět), testy proti lokálnímu HTTP serveru (`UfcalendarAdapterTest`); noční spuštění přidá F5.4 spolu s webhookem
 - [x] F5.4 Webhook `POST /api/v1/ingest/webhooks/ufcalendar` s ověřením podpisu (`UfcalendarWebhookController`, `WebhookSignature`, Flyway `V015__webhook_delivery.sql`) a noční stažení všech zdrojů ve 03:30 UTC (`SourceSyncJob`), `UfcalendarWebhookTest`
-- [ ] F5.5 `TheOddsApiAdapter`: polling podle blízkosti eventu, hlídání kreditů, párování podle jmen
+- [x] F5.5 `TheOddsApiAdapter`: polling podle blízkosti eventu (`OddsPollSchedule`, `TheOddsApiPollJob`), hlídání kreditů, párování podle jmen (`TheOddsApiAdapterTest`)
 - [ ] F5.6 (jen pokud The Odds API nepokryje ONE a KSW) `OddsApiIoAdapter`
 - [ ] F5.7 Přejímka: event UFC a Oktagonu přes nahrané odpovědi od ohlášení po dividendy
 
-Před F5.5 ověřit na klíči (úkol pro uživatele): pokrytí PFL, ONE, Oktagonu a KSW v The Odds API.
+Pokrytí The Odds API ověřeno uživatelem: sport key `mma_mixed_martial_arts` (kurzy např. DraftKings). Pokrytí konkrétních organizací (ONE, KSW) se ukáže až na živém klíči; F5.6 jen pokud chybí.
 UFCalendar (OpenAPI 1.4.0) čas ohlášení zápasu **nenese**, viz rozhodnutí z 2026-10-31.
 
 ---
@@ -132,6 +132,7 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-11-01 | F5 | The Odds API: jeden sport key `mma_mixed_martial_arts` pro všechny organizace, adaptér je bean jen s `THEODDSAPI_API_KEY`. Feed nemá organizaci ani id, zápas se proto páruje podle jmen obou zápasníků (v libovolném pořadí, `NameNormalizer`) mezi otevřenými zápasy (`ANNOUNCED`/`CONFIRMED`/`NEEDS_REVIEW`, s `external_id`) eventů začínajících ±`match-window-hours` (24) od `commence_time`; víc shod = přeskočit (log), neznámý zápas se tiše ignoruje (zápasy ohlašují feedy karet nebo admin, `review_item` by zahltil fronta cizími organizacemi). Kurz = medián přes sázkovky zvlášť pro každou stranu (`markets=h2h`, desetinný formát, `regions=eu,us` = 2 kredity na volání), orientace podle zápasníka A; `takenAt` = nejnovější `last_update`, klíč `odds:<bout.id>:<takenAt>` (beze změny se neukládá nic). Polling: `TheOddsApiPollJob` každou hodinu v :20, `OddsPollSchedule` (do 24 h před eventem každou hodinu, do 7 dní po 3 h, jinak denně, bez nadcházejícího eventu vůbec) a pauza při ≤ `ingest.sources.min-credits` kreditech; ruční sync to obchází. Kurz nikdy není `closing` (feed ho nerozliší). Kurzy z UFCalendar a The Odds API se mísí v `odds_snapshot` (rozhoduje poslední) | plán: „polling podle blízkosti eventu, hlídání kreditů, párování podle jmen“ |
 | 2026-10-31 | F5 | Webhook UFCalendar: endpoint je bean jen s `UFCALENDAR_WEBHOOK_SECRET` (`ingest.ufcalendar.webhook-secret`), podpis se ověřuje nad surovým tělem (`t=…,v1=…`, tolerance `webhook-tolerance-seconds` = 300, konstantní porovnání, víc `v1` povoleno), bez/špatný podpis = 401 `INVALID_SIGNATURE`, tělo bez `id` = 400. Schéma těla jsme neviděli, proto doručení bere jen jako **signál změny**: spustí `SourceSync.sync(UFCALENDAR)` (autoritativní data z API, současně dožene zmeškaná doručení) a `id` si zapíše do `webhook_delivery`; opakované `id` = 200 `duplicate` bez stažení. Selhané stažení = 502 a `id` se nezapamatuje, takže opakování od UFCalendar projde. Nevýhoda: každé doručení stojí jedno plné stažení (1 + karty na org požadavků); pokud se ukáže drahé, zúžit na jednu událost podle těla. Noční `SourceSyncJob` (03:30 UTC) stahuje všechny registrované zdroje, chyby jen zapíše do `source_status` | plán: „webhook (ověření podpisu) + noční plné stažení“; tvar těla webhooku neznáme |
 | 2026-10-31 | F5 | UFCalendar (OpenAPI 1.4.0, `Bearer` klíč): orgy `ufc`, `pfl`, `oktagon` (ONE a KSW zatím mimo, adminem); **zápas nemá čas ohlášení** – `announced_at` je tedy čas, kdy ho poprvé uvidíme (`announced_at_seen`); přesnější čas by dal `GET /v1/changes` (`fight-added`, `observed_at`), nevyužito. **Feed nese konsenzuální kurzy** (`include=odds`, i na free plánu: aktuální/otevírací/závěrečný), takže `odds.snapshot` pro UFC/PFL/Oktagon jde z UFCalendar a The Odds API (F5.5) je volitelná – rozhodnout po ověření pokrytí. Adaptér je bean jen s `UFCALENDAR_API_KEY`; používá JDK `HttpClient` (bez nové HTTP závislosti) a Jackson `databind`. Každá událost má klíč podle obsahu, takže se znovu poslaná nezměněná data neukládají (`IngestService.exists`); změna soupeře/typu = `bout.changed`, při druhém běhu se jednou pošle bezvýznamná změna, která zapíše klíč. Mapování: `is_title`→`TITLE`, `is_main`→`MAIN`; pohlaví z textu váhové třídy (`Women`); `method_normalized`→`KO_TKO/SUB/DEC_*/DQ/NC/DRAW`; bonus je jen textový štítek na zápase (ne na zápasníka): „Fight…“ → `FIGHT_OF_NIGHT` oběma, ostatní → `PERFORMANCE` vítězi; kurz zápasu dokončeného je `closing`; ranking UFC (`/v1/rankings/ufc`, bez P4P), divize `womens-x` → `Women's X`, hodnost 0 = šampion přebíráme tak, jak je. Chybí čas vážení, přetížení a zranění – zůstává na adminovi. Webhooky vyžadují plán **Pro** a mají podpis `X-UFCalendar-Signature: t=…,v1=HMAC-SHA256("<t>.<body>")` s tolerancí 300 s a deduplikací podle `id` (F5.4). Free plán má 1 000 požadavků měsíčně; jeden běh stojí 1 + počet karet v okně na org, tj. nočně by free plán nestačil | plán: „UFCalendar … čas ohlášení“; ověřeno v OpenAPI od uživatele |
 | 2026-10-30 | F5 | Logika ohlášení: kurz (jakéhokoli zdroje, i admina) k zápasu `ANNOUNCED`/`NEEDS_REVIEW` ho nastaví na `CONFIRMED`; kurz k neznámému zápasu se neuloží, založí `review_item` `UNKNOWN_BOUT` (jen `REJECT`) a event je `NEEDS_REVIEW`. `MissingOddsJob` (hodinově, advisory lock, `ingest.odds.missing-hours` = 48) přepne `CONFIRMED` zápas nadcházejícího eventu, jehož poslední kurz je ≥ 48 h starý, na `NEEDS_REVIEW`; cenu nemění (pokles až po potvrzeném zrušení). Zápas, který kurz nikdy neměl, se neoznačuje (zápasy se ohlašují měsíce předem). Zrušení z feedu už drží `ConfirmationPolicy` (F1.4). `NEEDS_REVIEW` z kurzů nemá `review_item` (nemá ingest event), admin ho vidí ve stavu zápasu | plán: body 2–4 „Logika ohlášení“; „kurzy chybí“ vyložen jako zmizení kurzů po prvním potvrzení |
@@ -195,7 +196,7 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F5.4 hotovo (PR stackovaný na F5.3). Další je **F5.5 – `TheOddsApiAdapter`** (polling podle blízkosti eventu, hlídání kreditů, párování podle jmen); UFCalendar už kurzy nese, takže F5.5 je volitelné – nejdřív ověřit na klíči pokrytí PFL/ONE/Oktagonu/KSW (úkol pro uživatele), jinak rovnou **F5.7 přejímka**. Každý úkol = vlastní větev a PR (`f5/f5.x-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`). Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě. Pro webhook nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro).
+F5.5 hotovo (větev stackovaná na F5.4 / PR #33). Další je **F5.7 – přejímka**: event UFC a Oktagonu přes nahrané odpovědi od ohlášení po dividendy (F5.6 `OddsApiIoAdapter` jen pokud živý klíč The Odds API nepokryje ONE a KSW; zjistí uživatel). Každý úkol = vlastní větev a PR (`f5/f5.x-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`). Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě. Nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro) a `THEODDSAPI_API_KEY`.
 
 Před startem uzavřené bety: po merge F2 a F3 spusť `POST /api/v1/admin/market/replay` od data importu historie
 (vytvoří listingy a ceny), založ sezónu `POST /api/v1/admin/seasons` a ověř `GET /api/v1/admin/ledger/check`.
