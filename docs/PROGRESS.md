@@ -8,8 +8,8 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F5 – Automatická data
-- **Stav fáze:** rozpracováno (F5.1–F5.5 hotovo). F3.2–F4 je v `main` (PR #29)
-- **Poslední aktualizace:** 2026-10-30
+- **Stav fáze:** F5.1–F5.5 a F5.7 hotovo, zbývá jen podmíněné F5.6. F3.2–F4 je v `main` (PR #29)
+- **Poslední aktualizace:** 2026-11-01
 
 ## Přehled fází
 
@@ -20,7 +20,7 @@
 | F2 | Trh a ceny | ✅ hotovo | #14–#19 |
 | F3 | Hráči, portfolio, obchodování | 🔵 F3.1 v `main`, F3.2–F3.8 v souhrnném PR | #20–#27, #29 |
 | F4 | Dividendy, kapitán, žebříčky | 🔵 v souhrnném PR | #28, #29 |
-| F5 | Automatická data | 🟡 rozpracováno | F5.1–F5.5 |
+| F5 | Automatická data | 🟡 rozpracováno (zbývá podmíněné F5.6) | F5.1–F5.5, F5.7 |
 | F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
 
 Legenda: ⚪ nezačato · 🟡 rozpracováno · 🔵 v review · ✅ hotovo
@@ -119,7 +119,7 @@ a event KSW se zadá ručně do 15 minut.
 - [x] F5.4 Webhook `POST /api/v1/ingest/webhooks/ufcalendar` s ověřením podpisu (`UfcalendarWebhookController`, `WebhookSignature`, Flyway `V015__webhook_delivery.sql`) a noční stažení všech zdrojů ve 03:30 UTC (`SourceSyncJob`), `UfcalendarWebhookTest`
 - [x] F5.5 `TheOddsApiAdapter`: polling podle blízkosti eventu (`OddsPollSchedule`, `TheOddsApiPollJob`), hlídání kreditů, párování podle jmen (`TheOddsApiAdapterTest`)
 - [ ] F5.6 (jen pokud The Odds API nepokryje ONE a KSW) `OddsApiIoAdapter`
-- [ ] F5.7 Přejímka: event UFC a Oktagonu přes nahrané odpovědi od ohlášení po dividendy
+- [x] F5.7 Přejímka: event UFC a Oktagonu přes nahrané odpovědi (UFCalendar + The Odds API) od ohlášení po dividendy jen s potvrzením výsledku adminem; KSW zadaný ručně bez potvrzování (`SourcesAcceptanceTest`)
 
 Pokrytí The Odds API ověřeno uživatelem: sport key `mma_mixed_martial_arts` (kurzy např. DraftKings). Pokrytí konkrétních organizací (ONE, KSW) se ukáže až na živém klíči; F5.6 jen pokud chybí.
 UFCalendar (OpenAPI 1.4.0) čas ohlášení zápasu **nenese**, viz rozhodnutí z 2026-10-31.
@@ -196,7 +196,7 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F5.5 hotovo (větev stackovaná na F5.4 / PR #33). Další je **F5.7 – přejímka**: event UFC a Oktagonu přes nahrané odpovědi od ohlášení po dividendy (F5.6 `OddsApiIoAdapter` jen pokud živý klíč The Odds API nepokryje ONE a KSW; zjistí uživatel). Každý úkol = vlastní větev a PR (`f5/f5.x-<slug>`, base = větev předchozího nemergovaného PR, jinak `main`). Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě. Nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro) a `THEODDSAPI_API_KEY`.
+F5.7 hotovo (větev stackovaná na F5.5). Zbývá **F5.6** `OddsApiIoAdapter`, jen pokud živý klíč The Odds API nepokryje ONE a KSW (zjistí uživatel); jinak je F5 hotová a následuje **F6 – Ostrý provoz a ligy** (nejdřív rozepsat na úkoly). Měření „KSW do 15 minut“ zůstává na uživateli. Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě. Nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro), `UFCALENDAR_API_KEY` a `THEODDSAPI_API_KEY`.
 
 Před startem uzavřené bety: po merge F2 a F3 spusť `POST /api/v1/admin/market/replay` od data importu historie
 (vytvoří listingy a ceny), založ sezónu `POST /api/v1/admin/seasons` a ověř `GET /api/v1/admin/ledger/check`.
