@@ -66,10 +66,21 @@ ingest:
   ufcalendar:
     # The adapter exists only with a key (https://www.ufcalendar.com/account/api); the free plan has 1,000 requests a month.
     api-key: ${UFCALENDAR_API_KEY:}
+    # Webhook endpoint exists only with a secret (Pro plan); deliveries older than the tolerance are refused.
+    webhook-secret: ${UFCALENDAR_WEBHOOK_SECRET:}
+    webhook-tolerance-seconds: 300
     base-url: ${UFCALENDAR_BASE_URL:`https://api.ufcalendar.com`}
     orgs: ufc,pfl,oktagon
     days-ahead: 90
     days-back: 7
+  theoddsapi:
+    # Odds for all MMA come from one sport key; the adapter exists only with a key (https://the-odds-api.com).
+    api-key: ${THEODDSAPI_API_KEY:}
+    base-url: ${THEODDSAPI_BASE_URL:`https://api.the-odds-api.com`}
+    sport: mma_mixed_martial_arts
+    # One call costs one credit per region.
+    regions: eu,us
+    match-window-hours: 24
   confirmation:
     # Event types from non-admin sources that wait for an admin decision (source ADMIN is trusted).
     required-types:
