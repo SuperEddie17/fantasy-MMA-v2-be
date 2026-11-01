@@ -404,6 +404,7 @@ s potvrzením adminem a event KSW se zadá ručně do 15 minut.
 ## Fáze 6 – Ostrý provoz a ligy (2–3 týdny)
 
 Cíl: veřejné spuštění.
+Rozpis na úkoly F6.1–F6.13 je v [`PROGRESS.md`](PROGRESS.md#f6--ostrý-provoz-a-ligy).
 
 **Provoz**
 
