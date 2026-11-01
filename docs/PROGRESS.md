@@ -8,7 +8,7 @@
 ## Aktuální stav
 
 - **Aktuální fáze:** F5 – Automatická data
-- **Stav fáze:** F5.1–F5.5 a F5.7 hotovo, zbývá jen podmíněné F5.6. F3.2–F4 je v `main` (PR #29)
+- **Stav fáze:** F5.1–F5.5 a F5.7 hotovo, zbývá jen podmíněné F5.6. F6 rozepsaná na úkoly F6.1–F6.13 (nezačato)
 - **Poslední aktualizace:** 2026-11-01
 
 ## Přehled fází
@@ -21,7 +21,7 @@
 | F3 | Hráči, portfolio, obchodování | 🔵 F3.1 v `main`, F3.2–F3.8 v souhrnném PR | #20–#27, #29 |
 | F4 | Dividendy, kapitán, žebříčky | 🔵 v souhrnném PR | #28, #29 |
 | F5 | Automatická data | 🟡 rozpracováno (zbývá podmíněné F5.6) | F5.1–F5.5, F5.7 |
-| F6 | Ostrý provoz a ligy | ⚪ nezačato | – |
+| F6 | Ostrý provoz a ligy | ⚪ rozepsáno na F6.1–F6.13 | – |
 
 Legenda: ⚪ nezačato · 🟡 rozpracováno · 🔵 v review · ✅ hotovo
 
@@ -124,6 +124,64 @@ a event KSW se zadá ručně do 15 minut.
 Pokrytí The Odds API ověřeno uživatelem: sport key `mma_mixed_martial_arts` (kurzy např. DraftKings). Pokrytí konkrétních organizací (ONE, KSW) se ukáže až na živém klíči; F5.6 jen pokud chybí.
 UFCalendar (OpenAPI 1.4.0) čas ohlášení zápasu **nenese**, viz rozhodnutí z 2026-10-31.
 
+## F6 – Ostrý provoz a ligy
+
+Detail viz [`plan.md`](plan.md#fáze-6--ostrý-provoz-a-ligy-23-týdny).
+Hotovo, když: zátěžový test (1 000 hráčů, 50 obchodů za sekundu) projde, obnova zálohy je vyzkoušená
+a beta hráči přejdou do ostré sezóny.
+
+Pořadí: nasazení a pozorovatelnost (F6.1–F6.3) → ochrana účtů a API (F6.4–F6.5) → admin (F6.6–F6.7)
+→ GDPR (F6.8) → ligy (F6.9–F6.10) → zálohy, zátěž a spuštění (F6.11–F6.13).
+Ligy F6.9–F6.10 čekají na odpověď na otevřenou otázku „globální trh, nebo soukromé ligy“ (viz níže);
+ostatní úkoly na ní nezávisí.
+
+- [ ] F6.1 Produkční image a konfigurace: `Dockerfile` (vícefázový build, JRE 21, ne-root uživatel), `HEALTHCHECK` a
+  `/health/liveness` + `/health/readiness`, Flyway při startu, graceful shutdown; povinné tajné hodnoty
+  (`JWT_SECRET`, `ADMIN_PASSWORD`, `DB_*`) se v prostředí `prod` kontrolují při startu (chybí = aplikace nenaběhne);
+  CI na `main` sestaví image a pošle do GHCR; `docs/ops.md` (proměnné prostředí, nasazení)
+- [ ] F6.2 Metriky a logy: Micrometer + Prometheus (`/prometheus`, jen s tokenem nebo z interní sítě), JSON logy
+  v `prod` (logback encoder), `request_id` v logu a v `Problem`; společný obal `@Scheduled` úloh (`JobRunner`):
+  délka běhu, počet chyb, čas posledního úspěchu jako metriky; pravidla upozornění (úloha selhala / neběží déle
+  než 2× interval, chyby 5xx, výpadek zdroje) jako soubor pro Prometheus/Grafanu v `ops/`
+- [ ] F6.3 Odesílání e-mailů: rozhraní `MailSender` (SMTP přes `MAIL_*`, bez konfigurace jen log), šablony textem;
+  napojit upozornění ze `SourceAlertJob` a selhání úloh na e-mail adminovi (`ADMIN_ALERT_EMAIL`) s potlačením
+  opakování (stejné upozornění max. jednou za 6 h)
+- [ ] F6.4 Ověřený e-mail a ochrana proti více účtům: Flyway `app_user.email_verified_at`, ověřovací token
+  (`POST /auth/verify`, `POST /auth/verify/resend`), vstup do sezóny a obchod jen s ověřeným e-mailem
+  (403 `EMAIL_NOT_VERIFIED`); limit registrací na IP (`auth.max-registrations-per-ip-per-day`), registrační IP
+  a IP přihlášení se ukládají (hash) pro ruční kontrolu adminem; e-maily `+alias` se normalizují pro unikátnost;
+  obnova hesla (`POST /auth/password/forgot`, `/reset`) přes stejné tokeny
+- [ ] F6.5 Rate limit: filtr s token bucketem (paměť instance, bez nové služby) zvlášť pro veřejná čtecí API
+  (podle IP), přihlášení/registraci (podle IP, přísnější) a obchodní API (podle uživatele, `quote` a `trades`);
+  limity v konfiguraci, překročení = 429 `RATE_LIMITED` (problem+json, `Retry-After`); webhook a admin mimo
+- [ ] F6.6 Audit adminů: Flyway `admin_audit (id, actor, action, target_type, target_id, before, after, at, request_id)`,
+  zápis ve stejné transakci jako změna u všech zapisujících admin endpointů (eventy, zápasy, výsledky, kurzy, fronta,
+  sloučení, trh, sezóny, sync zdrojů), `GET /api/v1/admin/audit?actor=&target=&after=` (kurzor)
+- [ ] F6.7 Dashboard admina `GET /api/v1/admin/dashboard`: počty a nejstarší položky fronty ke kontrole, zápasy
+  `NEEDS_REVIEW`, stav zdrojů (z `/admin/sources` vč. upozornění), nadcházející eventy (14 dní) bez kurzů / bez času
+  vážení / s neúplnou kartou, výsledky čekající na potvrzení, poslední běh úloh a výsledek kontroly ledgeru
+- [ ] F6.8 GDPR: `GET /api/v1/me/export` (JSON: účet, portfolia, obchody, ledger, dividendy, kapitáni, žebříčky),
+  `DELETE /api/v1/me` (potvrzení heslem) = anonymizace účtu (e-mail, jméno a hash hesla smazat, `deleted_at`),
+  portfolia a ledger zůstávají bez osobních údajů kvůli účetní shodě a žebříčkům; smazaný účet se nepřihlásí
+- [ ] F6.9 Ligy – schéma a správa: Flyway `league (id, name, owner_id, invite_code, season_id, mode, created_at)`
+  a `league_member`, `POST /api/v1/leagues`, `POST /api/v1/leagues/join {inviteCode}`, `GET /api/v1/leagues`
+  (moje), `GET /api/v1/leagues/{id}`, odchod a vyřazení členů vlastníkem, nový kód pozvánky
+- [ ] F6.10 Ligy – soutěž: portfolio ligy (`portfolio.league_id`, vlastní rozpočet, sdílené ceny), napojení
+  na obchodování a výplaty, `NetWorthJob`/`LeaderboardJob` i pro ligová portfolia,
+  `GET /api/v1/leagues/{id}/leaderboard?period=` (celkem i měsíční sprint); poptávka (`DemandJob`) počítá jen
+  globální portfolia, aby ligy nehýbaly trhem
+- [ ] F6.11 Zálohy a obnova: denní záloha spravovaného Postgresu (nastavení u poskytovatele) + vlastní noční
+  `pg_dump` do úložiště mimo poskytovatele (`ops/backup.sh`, retence 30 dní), skript obnovy do čisté DB
+  (`ops/restore-check.sh`: obnova → Flyway validate → `GET /admin/ledger/check` prázdný); postup a datum
+  vyzkoušené obnovy v `docs/ops.md`
+- [ ] F6.12 Zátěžový test: skript (k6 v `load/`) – 1 000 hráčů (registrace, portfolio, nákupy, čtení trhu
+  a žebříčku), 50 obchodů/s po 10 min proti image z F6.1 s Postgresem; kritérium p95 obchodu < 300 ms, 0 chyb 5xx,
+  ledger po testu sedí; nalezená úzká místa opravit (indexy, pool, zámky) a výsledek zapsat sem
+- [ ] F6.13 Přechod do ostré sezóny: `POST /api/v1/admin/seasons/{id}/close` (uzavře žebříček sezóny, zamkne
+  obchody), založení ostré sezóny s kalibrovaným `rule_set` (nová verze migrací, pokud se pravidla z bety mění),
+  účty z bety zůstávají a vstoupí do nové sezóny s čistým rozpočtem; kontrolní seznam spuštění v `docs/ops.md`
+  (klíče zdrojů, webhook, zálohy, upozornění, replay trhu, ledger check)
+
 ---
 
 ## Rozhodnutí
@@ -132,6 +190,8 @@ Zapisuj sem vše, co plán upřesňuje nebo mění (nejnovější nahoře).
 
 | Datum | Fáze | Rozhodnutí | Proč |
 | --- | --- | --- | --- |
+| 2026-11-01 | F6 | Rozpis F6 na úkoly F6.1–F6.13 (nasazení → pozorovatelnost → e-mail → ochrana účtů a API → admin → GDPR → ligy → zálohy, zátěž, spuštění). Upřesnění plánu: e-mail (F6.3) jde před ověřením účtu, protože ho potřebuje ověření, obnova hesla i upozornění z F5 (dosud jen log); rate limit je v paměti instance (bez Redisu), dokud běží jedna instance; smazání účtu = anonymizace, ne fyzické smazání (ledger a žebříčky musí sedět); ligy podle výchozí varianty plánu (sdílený trh, každá liga vlastní portfolio přes `portfolio.league_id`), exkluzivní vlastnictví by byla samostatná fáze | plán F6 uvádí jen témata; ověřený e-mail bez poštovní služby dodat nejde |
+| 2026-11-01 | proces | PR #35 (F5.7) se mergoval do větve `f5/f5.5-theoddsapi-adapter` až po merge #34 do `main`, takže F5.7 v `main` není (stejná chyba jako u #21–#28). Větev rozpisu F6 proto vychází z `f5/f5.7-acceptance` a PR do `main` nese i F5.7 | zjištěno při rozpisu F6 |
 | 2026-11-01 | F5 | The Odds API: jeden sport key `mma_mixed_martial_arts` pro všechny organizace, adaptér je bean jen s `THEODDSAPI_API_KEY`. Feed nemá organizaci ani id, zápas se proto páruje podle jmen obou zápasníků (v libovolném pořadí, `NameNormalizer`) mezi otevřenými zápasy (`ANNOUNCED`/`CONFIRMED`/`NEEDS_REVIEW`, s `external_id`) eventů začínajících ±`match-window-hours` (24) od `commence_time`; víc shod = přeskočit (log), neznámý zápas se tiše ignoruje (zápasy ohlašují feedy karet nebo admin, `review_item` by zahltil fronta cizími organizacemi). Kurz = medián přes sázkovky zvlášť pro každou stranu (`markets=h2h`, desetinný formát, `regions=eu,us` = 2 kredity na volání), orientace podle zápasníka A; `takenAt` = nejnovější `last_update`, klíč `odds:<bout.id>:<takenAt>` (beze změny se neukládá nic). Polling: `TheOddsApiPollJob` každou hodinu v :20, `OddsPollSchedule` (do 24 h před eventem každou hodinu, do 7 dní po 3 h, jinak denně, bez nadcházejícího eventu vůbec) a pauza při ≤ `ingest.sources.min-credits` kreditech; ruční sync to obchází. Kurz nikdy není `closing` (feed ho nerozliší). Kurzy z UFCalendar a The Odds API se mísí v `odds_snapshot` (rozhoduje poslední) | plán: „polling podle blízkosti eventu, hlídání kreditů, párování podle jmen“ |
 | 2026-10-31 | F5 | Webhook UFCalendar: endpoint je bean jen s `UFCALENDAR_WEBHOOK_SECRET` (`ingest.ufcalendar.webhook-secret`), podpis se ověřuje nad surovým tělem (`t=…,v1=…`, tolerance `webhook-tolerance-seconds` = 300, konstantní porovnání, víc `v1` povoleno), bez/špatný podpis = 401 `INVALID_SIGNATURE`, tělo bez `id` = 400. Schéma těla jsme neviděli, proto doručení bere jen jako **signál změny**: spustí `SourceSync.sync(UFCALENDAR)` (autoritativní data z API, současně dožene zmeškaná doručení) a `id` si zapíše do `webhook_delivery`; opakované `id` = 200 `duplicate` bez stažení. Selhané stažení = 502 a `id` se nezapamatuje, takže opakování od UFCalendar projde. Nevýhoda: každé doručení stojí jedno plné stažení (1 + karty na org požadavků); pokud se ukáže drahé, zúžit na jednu událost podle těla. Noční `SourceSyncJob` (03:30 UTC) stahuje všechny registrované zdroje, chyby jen zapíše do `source_status` | plán: „webhook (ověření podpisu) + noční plné stažení“; tvar těla webhooku neznáme |
 | 2026-10-31 | F5 | UFCalendar (OpenAPI 1.4.0, `Bearer` klíč): orgy `ufc`, `pfl`, `oktagon` (ONE a KSW zatím mimo, adminem); **zápas nemá čas ohlášení** – `announced_at` je tedy čas, kdy ho poprvé uvidíme (`announced_at_seen`); přesnější čas by dal `GET /v1/changes` (`fight-added`, `observed_at`), nevyužito. **Feed nese konsenzuální kurzy** (`include=odds`, i na free plánu: aktuální/otevírací/závěrečný), takže `odds.snapshot` pro UFC/PFL/Oktagon jde z UFCalendar a The Odds API (F5.5) je volitelná – rozhodnout po ověření pokrytí. Adaptér je bean jen s `UFCALENDAR_API_KEY`; používá JDK `HttpClient` (bez nové HTTP závislosti) a Jackson `databind`. Každá událost má klíč podle obsahu, takže se znovu poslaná nezměněná data neukládají (`IngestService.exists`); změna soupeře/typu = `bout.changed`, při druhém běhu se jednou pošle bezvýznamná změna, která zapíše klíč. Mapování: `is_title`→`TITLE`, `is_main`→`MAIN`; pohlaví z textu váhové třídy (`Women`); `method_normalized`→`KO_TKO/SUB/DEC_*/DQ/NC/DRAW`; bonus je jen textový štítek na zápase (ne na zápasníka): „Fight…“ → `FIGHT_OF_NIGHT` oběma, ostatní → `PERFORMANCE` vítězi; kurz zápasu dokončeného je `closing`; ranking UFC (`/v1/rankings/ufc`, bez P4P), divize `womens-x` → `Women's X`, hodnost 0 = šampion přebíráme tak, jak je. Chybí čas vážení, přetížení a zranění – zůstává na adminovi. Webhooky vyžadují plán **Pro** a mají podpis `X-UFCalendar-Signature: t=…,v1=HMAC-SHA256("<t>.<body>")` s tolerancí 300 s a deduplikací podle `id` (F5.4). Free plán má 1 000 požadavků měsíčně; jeden běh stojí 1 + počet karet v okně na org, tj. nočně by free plán nestačil | plán: „UFCalendar … čas ohlášení“; ověřeno v OpenAPI od uživatele |
@@ -196,7 +256,10 @@ Poznámka pro agenty v sandboxu: Maven Central tam vrací 429. Pomáhá lokáln�
 
 ## Další krok
 
-F5.7 hotovo (větev stackovaná na F5.5). Zbývá **F5.6** `OddsApiIoAdapter`, jen pokud živý klíč The Odds API nepokryje ONE a KSW (zjistí uživatel); jinak je F5 hotová a následuje **F6 – Ostrý provoz a ligy** (nejdřív rozepsat na úkoly). Měření „KSW do 15 minut“ zůstává na uživateli. Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě. Nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro), `UFCALENDAR_API_KEY` a `THEODDSAPI_API_KEY`.
+**F6.1** Produkční image a konfigurace (větev `f6/f6.1-docker-image`). Před F6.9 potřebuje odpověď uživatele na otázku
+lig (níže). F5.6 `OddsApiIoAdapter` zůstává podmíněný: jen pokud živý klíč The Odds API nepokryje ONE a KSW.
+Měření „KSW do 15 minut“ zůstává na uživateli. Hodnoty odhadnuté ve F2–F4 (ranking, poptávka) doladit v betě.
+Nastav `UFCALENDAR_WEBHOOK_SECRET` (plán Pro), `UFCALENDAR_API_KEY` a `THEODDSAPI_API_KEY`.
 
 Před startem uzavřené bety: po merge F2 a F3 spusť `POST /api/v1/admin/market/replay` od data importu historie
 (vytvoří listingy a ceny), založ sezónu `POST /api/v1/admin/seasons` a ověř `GET /api/v1/admin/ledger/check`.
@@ -210,5 +273,7 @@ Při chybě „Number of loaded files in snapshots differs“ pomůže `rm -rf a
 
 Viz konec [`plan.md`](plan.md#otevřené-otázky-které-blokují-fáze). Nové otázky zapisuj sem.
 
+- Ligy (blokuje F6.9): stačí ligy nad sdíleným trhem s vlastním portfoliem ligy (výchozí návrh), nebo mají ligy hrát s globálním portfoliem hráče (jen žebříček skupiny), případně exkluzivní vlastnictví (aukce, samostatná fáze +3–4 týdny)?
+- Kde poběží produkce (poskytovatel kontejnerů a spravovaného Postgresu, SMTP služba)? Potřeba pro F6.1–F6.3 a F6.11.
 - Přetížení: má zápasník s přetížením přijít o 1 M i při prohře (tj. strhnout se držitelům)? Zatím jen snižuje výplatu za výhru.
 - Má se kapitánův násobek vztahovat i na bonusy? Zatím ano (jako `sim.py`).
